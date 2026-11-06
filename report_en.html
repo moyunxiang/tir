@@ -9,13 +9,13 @@
 </head>
 <body>
 <div class="doc">
-<p class="back"><a href="./">← 返回页面</a> <a href="report_zh.html">中文</a></p>
+<p class="back"><a href="./">← 全部结果</a></p>
 <h1>High entropy after tool feedback: report on four smoke tests</h1>
 <blockquote>
 <p>2026-11-06. All numbers come from <code>experiments/smoke/results/simpletir7b/</code>; raw trajectories are in <code>experiments/smoke/runs/simpletir7b/</code> (not in git). Pre-registration: <code>PREREG.md</code>, commit <code>ca8d6c8</code>, committed before any real rollout.</p>
 <p>This is a smoke test on a laptop: one model, 4-bit quantisation, at most 36 problems. It can find large effects and design errors. It cannot establish small effects. &quot;Not detected&quot; means only that nothing was detected at this size.</p>
 </blockquote>
-<h2 id="1-conclusions">1. Conclusions</h2>
+<h2>1. Conclusions</h2>
 <h3>Observed results</h3>
 <ol>
 <li><strong>Entropy and continuation quality can move separately (B, intervention, 15 prefixes).</strong> Changing only the form raises H10 with no detected change in quality: <code>verbose</code> H10 +0.250 (Holm .027), success +0.033 (Holm .747); <code>text_only</code> H10 +0.162 (Holm .002), success −0.033 (Holm .747). Changing only the digits lowers success, while the rise in H10 is not detected: <code>perturbed</code> success −0.333 (Holm .030), valid −0.256 (Holm .031), H10 +0.099 (Holm .096).</li>
@@ -38,7 +38,7 @@
 <li>Why <code>tool_boundary</code> has the highest point estimate is unknown. Its branch positions differ from the other arms (§3.4), and n=10.</li>
 <li>The mechanism by which <code>perturbed</code> lowers quality is not established. The case study shows the model adopting a wrong number directly (§4), but the difference in <code>adopt</code> is not detected (−0.278, Holm .151).</li>
 </ul>
-<h2 id="2-experiment-configuration">2. Experiment configuration</h2>
+<h2>2. Experiment configuration</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -134,7 +134,7 @@
 </tr>
 </tbody>
 </table></div>
-<h2 id="3-results">3. Results</h2>
+<h2>3. Results</h2>
 <h3>3.1 Calibration</h3>
 <div class="tw"><table>
 <thead>
@@ -1773,7 +1773,7 @@
 </tbody>
 </table></div>
 <p>Tool result kinds (timeouts may be inflated by machine load): timeout rate calibration .096 (30/314), A .073 (27/372), B .041 (40/983), C .103 (22/213). Source: <code>tool_kinds_by_stage.csv</code>.</p>
-<h2 id="4-case-studies">4. Case studies</h2>
+<h2>4. Case studies</h2>
 <p>Cases are chosen by a rule in <code>analyze.py</code> (<code>case_studies.md</code>), not picked by hand.</p>
 <p><strong>Success and failure from one prefix (B, <code>math_counting_and_probability_25149</code>, 1.00 to 0.00, the largest drop).</strong> The answer is 63.</p>
 <ul>
@@ -1785,12 +1785,12 @@
 <p><strong>High entropy and valid (A, <code>aime24_10:r1:t3</code>, H10 1.71, success .83, valid .83).</strong> One continuation gives <code>\boxed{371}</code>, correct; another keeps rechecking until the turn limit (<code>Interestingly, it yielded ...</code>).</p>
 <p><strong>High entropy and degenerate (A, <code>aime24_10:r3:t3</code>, H10 2.04, success 0, valid 0).</strong> Openings include <code>It appears that my code might be flawed...</code> and <code>It appears our logic still isn't correct...</code>. All 6 continuations first write code and get a result; in the next turn (after 4 calls) 5 of them output <code>Reach max function call limit.</code>, which counts as void, and the other reaches the turn limit. In 2 of them the tool output already contains this problem's correct answer (for example <code>Sum m + n: 371</code>), yet this string means no answer is given. So the low quality of this high-entropy state comes at least partly from the fixed final-turn output (an observation about this one state).</p>
 <p><strong>Fixed void (calibration, <code>calib:aime24_01:0</code>, turn 5, after 4 calls).</strong> The previous tool result is <code>None</code>. The first token of the next turn is <code>Reach</code>, with probability about .987 (logp −0.013) and H_first .073, followed by the whole string and EOS. In this example the void is low-entropy; it does not look like a collapse after uncertainty.</p>
-<h2 id="5-key-findings-minimal-interpretation">5. Key Findings / Minimal Interpretation</h2>
+<h2>5. Key Findings / Minimal Interpretation</h2>
 <p><em>Label: Interpretation, not a first-level conclusion.</em></p>
 <p>Answer to the core question: for this model and at this size, <strong>high entropy after tool feedback does not by itself indicate either valuable exploration or unstable continuation.</strong> Content (whether the numbers are right) can lower quality while the change in H10 goes undetected; form (logs, no tool marker) can raise H10 with no detected change in quality. In A, high-H10 states have lower quality, but this does not pass correction and may come from path dependence.</p>
 <p>D also suggests caution in using void as a proxy for &quot;instability&quot;: in this model, void is mainly a fixed output sensitive to the protocol's format.</p>
 <p>Relation to existing methods (Interpretation): ReTool excludes tool-output tokens from the policy loss, but the tool output stays in the context, and B measures the effect of that content on later tokens; SimpleTIR filters void trajectories, while void here is mostly a fixed string; ARPO uses the rise in post-tool entropy as a branching signal, and the rise is replicated here (§3.5), but equal-budget branching shows no advantage for choosing positions by entropy (§3.4, n=10).</p>
-<h2 id="6-limitations">6. Limitations</h2>
+<h2>6. Limitations</h2>
 <ul>
 <li><strong>One model, 4-bit.</strong> Post-tool first-token entropy is sensitive to quantisation (§3.6), so <code>H_first</code> results should be taken as properties of the 4-bit model only. Fidelity of H10: not computed. fp16 was not compared. The ARPO model replication was not run.</li>
 <li><strong>Small size.</strong> B has 15 prefixes, A 30 states, C 10 problems. Not detected does not mean no effect: the success point estimates for <code>irrelevant</code> and <code>empty</code> fall by .178 and .167.</li>
@@ -1802,7 +1802,7 @@
 <li><strong>Problem selection.</strong> Problems were selected from calibration by outcome mix, so regression to the mean is possible. Three of B's prefixes already have success 0 under <code>normal</code>.</li>
 <li><strong>No training.</strong> All conclusions concern inference with trained weights and say nothing about RL updates.</li>
 </ul>
-<h2 id="7-novelty-risk">7. Novelty risk</h2>
+<h2>7. Novelty risk</h2>
 <p>Details are in <code>notes/smoke_novelty.md</code>. Conclusions cover only what was searched; this is not an exhaustive literature review.</p>
 <div class="tw"><table>
 <thead>
@@ -1888,7 +1888,7 @@
 </tbody>
 </table></div>
 <p>Comparison with ProCredit: here <code>error</code> lowers first-token entropy (−.206), leaves H10 unchanged and raises H50 (+.268, Holm .027); ProCredit reports a rise of +0.235±0.034 over the first 20 tokens of error turns on 4B. The model, task and design (observational versus intervention) all differ, so this is not a contradiction, and the two cannot be pooled.</p>
-<h2 id="8-deviations">8. Deviations</h2>
+<h2>8. Deviations</h2>
 <p>Relative to <code>PREREG.md</code>. The three items in its §7 (length limits, sizes, 8-bit reference) are already recorded there.</p>
 <ol>
 <li><strong>The placebo correlation cannot be computed.</strong> My design has only one placebo state per problem, so no within-problem correlation exists, and the placebo columns in <code>A_posttool_vs_placebo.csv</code> are empty. A post-hoc fixed-effects interaction replaces it.</li>
@@ -1901,7 +1901,7 @@
 <li><strong>Run history:</strong> three sessions. I ran the probe concurrently with B, and B added no rollouts 10:05–11:16. The end of a Claude Code session interrupted the job once (B=325); two low-battery pauses followed (12:04–14:09; from 15:25 until stopped by the user, resumed 18:37 with B=390). Rollouts not yet written at an interruption were rerun. The deadlines for B and C moved from 15:30 / 17:00 to 22:00 / 22:45, and neither was actually cut off (<code>stop=None</code>). Pauses and machine load may have affected tool timeout rates.</li>
 <li><strong>ARPO replication (pre-registered as time permitting) was not run.</strong></li>
 </ol>
-<h2 id="9-suggested-items-for-the-6-november-discussion">9. Suggested items for the 6 November discussion</h2>
+<h2>9. Suggested items for the 6 November discussion</h2>
 <p><strong>Most worth discussing (observed results):</strong></p>
 <ol>
 <li><strong>The dissociation in B:</strong> form can raise entropy without hurting quality, and content can hurt quality while the entropy change goes undetected. This poses a concrete question for approaches such as ARPO, AEPO and TAO-RL that treat high post-tool entropy as an exploration signal.</li>
@@ -1909,9 +1909,9 @@
 </ol>
 <p><strong>Decisions that need the professor's judgement:</strong></p>
 <ul>
-<li>Whether the project should grow from a survey into a research paper (the maximum goal in <code>plan.md</code> §1 is still the survey, and §11 still says no GPU experiments).</li>
-<li>Whether the next step needs a GPU: fp16 weights, 50 or more prefixes, and the ARPO model.</li>
-<li>Where the contribution should sit: whether a &quot;form versus content decomposition&quot; is enough of a research question, or whether it should go on to training (for example, changing only the form of feedback and seeing whether an entropy bonus is drawn to it).</li>
+<li>How these results relate to the survey: whether they merit a small empirical section in the survey, or should only be recorded as a later direction. <strong>The survey remains the first direction of the project (<code>plan.md</code> §1), and this does not change it.</strong></li>
+<li>If this continues, whether the next step needs a GPU: fp16 weights, 50 or more prefixes, and the ARPO model.</li>
+<li>If this continues, where the question should sit: whether a &quot;form versus content decomposition&quot; is enough of a research question, or whether it should go on to training (for example, changing only the form of feedback and seeing whether an entropy bonus is drawn to it).</li>
 </ul>
 <p><strong>What should not be claimed yet:</strong></p>
 <ul>
@@ -1921,7 +1921,7 @@
 <li>That the source of the <code>Reach</code> string is known.</li>
 </ul>
 <p><strong>Follow-up Analysis Needed:</strong> check whether the string appears in SimpleTIR's training environment; run the same probe on other checkpoints; retest B's H_first and H10 on fp16; add samples per condition to settle the success effects of <code>irrelevant</code> and <code>empty</code>; control the tool-call budget in C and add problems.</p>
-<h2 id="10-reproduction">10. Reproduction</h2>
+<h2>10. Reproduction</h2>
 <pre><code class="language-bash">cd experiments/smoke
 .venv/bin/python run_exps.py --model models/simpletir7b-4bit --fmt simpletir --tag simpletir7b --stage B --bs 6 --n_sel 15 --n_B 15 --C_B 6   # same for other stages, resumes by jid
 .venv/bin/python analyze.py simpletir7b

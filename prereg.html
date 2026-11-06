@@ -9,12 +9,12 @@
 </head>
 <body>
 <div class="doc">
-<p class="back"><a href="./">← 返回页面</a></p>
+<p class="back"><a href="./">← 全部结果</a></p>
 <h1>Smoke tests: post-tool entropy in tool-integrated reasoning (pre-registration)</h1>
 <p>Written 2026-11-04, before any rollout from a trained checkpoint existed (engine tests used an unrelated 0.5B chat model). Sample sizes in §1 may be reduced after the throughput pilot; hypotheses, metrics, tests and decision rules may not change after that. Any later change is listed in <code>report_*.md</code> under &quot;Deviations&quot;.</p>
 <p><strong>Question.</strong> Is high token entropy right after a tool result useful exploration, or unstable continuation? How do the content and form of tool feedback change that?</p>
 <p><strong>Status of the results.</strong> A smoke test on a laptop: at most about 20 problems, one model family. It can find large effects and rule out a broken design. It cannot establish small effects, and a null means &quot;not detected at this size&quot;.</p>
-<h2 id="1-setup">1. Setup</h2>
+<h2>1. Setup</h2>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -72,9 +72,9 @@
 </tbody>
 </table></div>
 <p>Sizes after the pilot: calibration 36 problems × 4 roots; A 15 problems × (2 post-tool + 1 placebo states) × 6 continuations; B 15 prefixes × 7 conditions × 6 continuations; C 10 problems × 5 arms. Originally planned: 60 × 4; 20 × (3+1) × 8; 20 × 7 × 8; 15 × 5.</p>
-<h2 id="2-problem-selection-fixed-before-seeing-calibration-results">2. Problem selection (fixed before seeing calibration results)</h2>
+<h2>2. Problem selection (fixed before seeing calibration results)</h2>
 <p>From calibration, keep problems with at least one root that made a tool call and continued. Take up to 70% from mixed-outcome problems (0 &lt; success &lt; 1 over the four roots), then alternate all-correct and all-wrong problems. All draws are seeded. This does not condition on any entropy value. Regression to the mean on success is possible and is why roots are never compared with their own continuations as an effect estimate.</p>
-<h2 id="3-experiment-a-entropy-vs-continuation-quality">3. Experiment A: entropy vs continuation quality</h2>
+<h2>3. Experiment A: entropy vs continuation quality</h2>
 <p><strong>States.</strong> Post-tool states: context up to and including the tool result. Placebo states: a random position in ordinary reasoning text of the same problem's roots, not inside code and not right after a tool result. Without the placebo a correlation could not be attributed to tools.</p>
 <p><strong>Entropy predictors.</strong></p>
 <ul>
@@ -101,7 +101,7 @@
 <li>Both can hold at once; the taxonomy is what separates them.</li>
 <li>A correlation only counts as tool-specific if the CI of the post-tool minus placebo difference excludes 0.</li>
 </ul>
-<h2 id="4-experiment-b-tool-feedback-intervention-the-causal-arm">4. Experiment B: tool feedback intervention (the causal arm)</h2>
+<h2>4. Experiment B: tool feedback intervention (the causal arm)</h2>
 <p><strong>Prefix.</strong> One per problem: the first root whose first code turn ran with non-empty stdout of at most 200 characters containing a digit and no <code>\boxed</code>. Selected on the tool result only, never on the outcome. Same prefix across all conditions, same seed list.</p>
 <p><strong>Conditions.</strong></p>
 <div class="tw"><table>
@@ -155,18 +155,18 @@
 <p><strong>Tests.</strong> Paired by prefix: each condition minus <code>normal</code>. Wilcoxon signed-rank, Holm across the six conditions within each outcome; 95% CI by bootstrap over prefixes. A condition's effect is called <em>detected</em> only when Holm-adjusted p &lt; 0.05 and the CI excludes 0.</p>
 <p><strong>Key contrast.</strong> <em>Dissociation</em>: two conditions with similar H10 (|difference| &lt; 0.1 nats) but <code>valid</code> or <code>success</code> differing by more than 0.2 with a CI excluding 0; or a condition that raises entropy without lowering quality alongside one that raises it and lowers quality. Either would show entropy does not by itself determine continuation quality. The absence of any dissociation would count against the idea.</p>
 <p><strong>Length confound.</strong> <code>verbose</code> changes length by design, and the other conditions differ by a few tokens. Observation length is reported per condition. <code>perturbed</code> and <code>irrelevant</code> are the clean content contrasts; <code>text_only</code> is the clean form contrast.</p>
-<h2 id="5-experiments-c-and-d">5. Experiments C and D</h2>
+<h2>5. Experiments C and D</h2>
 <p><strong>C: branching at inference time.</strong> For each problem, every arm starts from the same two roots (the first two calibration rollouts) and has the same budget: tokens = 3 × mean root tokens (clamped to 600–3000), tool calls = 3 × mean root calls (at least 3). Arms choose where to resample: <code>random</code> token, <code>tool_boundary</code> (first token after a tool result), <code>high_entropy</code> (highest entropy over all policy tokens), <code>low_entropy</code> (lowest), and <code>posttool_high</code> (highest within 50 tokens after a tool result, closest to ARPO). A minimum spacing of 8 tokens avoids spending the budget on adjacent positions. A branch that crosses the budget is cut off and counts as spent.</p>
 <p>Primary: <code>pass@budget</code> (any leaf correct, including the roots), on all problems and on the <em>rescue</em> subset where both roots failed. Secondary: valid rate of branches, distinct valid answers, correct branches per 1,000 tokens. Each arm versus <code>random</code>, paired by problem, exact sign test; with 15 problems only a large effect could be detected, so results are descriptive unless the test passes.</p>
 <p><strong>D: void-turn audit, no new generation.</strong> All rollouts from calibration, A, B and C. Per turn following a tool result: void hazard by tercile of <code>H_first</code>; <code>H_first</code> and <code>H10</code> for void versus non-void continuations from the <em>same state</em> (paired, removes state effects); trajectory classes (correct / wrong answer / void_eos / void_trunc / turn limit) compared by entropy, surprisal and the per-token logit-gradient proxy. The proxy is sqrt(1 − 2p_a + Σp²); it measures sensitivity of log p(a) to logits. <strong>No training gradient is computed, so no statement about gradient explosion can follow from D.</strong> With fewer than 20 void events, D is descriptive only. Void events caused by the laptop token limit (<code>void_trunc</code>) are reported separately so a limit artefact is not mistaken for a model failure.</p>
-<h2 id="6-gates-and-fidelity">6. Gates and fidelity</h2>
+<h2>6. Gates and fidelity</h2>
 <ul>
 <li>Sandbox self-test (<code>sandbox.py</code>) and engine test (<code>test_engine.py</code>) must pass.</li>
 <li><strong>Protocol gate (after pilot):</strong> at least half the rollouts call the tool, and tool results are visibly used. If not, stop and inspect the format before spending the night.</li>
 <li><strong>Fidelity:</strong> 4-bit versus published fp16 weights on real rollouts, by position. Report Spearman and mean |ΔH|. If Spearman &lt; 0.9, all entropy results are labelled as properties of the quantised model only.</li>
 <li><strong>Novelty.</strong> <code>notes/smoke_novelty.md</code> lists overlap with APPO, AEPO, ProCredit, TAO-RL and tool-trust papers.</li>
 </ul>
-<h2 id="7-deviations-made-after-the-pilot-and-before-any-main-run-data">7. Deviations made after the pilot and before any main-run data</h2>
+<h2>7. Deviations made after the pilot and before any main-run data</h2>
 <p>The pilot (5 problems × 4 roots, <code>runs/simpletir7b/pilot.jsonl</code>) is used for protocol checks only and is excluded from every analysis.</p>
 <ol>
 <li><strong>Token limits raised</strong> from 1024 per turn / 2500 per rollout to 2048 / 4096 for roots (2500 new tokens for continuations). In the pilot 5 of 20 rollouts ended as <code>void_trunc</code> and 4 as <code>budget</code>. Their tails were ordinary reasoning or code cut mid-line with no repetition, so the 1024 limit was creating false void turns.</li>
@@ -174,7 +174,7 @@
 <li><strong>Fidelity reference</strong> is 8-bit, not fp16: the machine already had 19 GB of swap in use and fp16 needs about 14 GB. So §6 measures sensitivity to quantisation level, not distance from the published weights.</li>
 </ol>
 <p>Hypotheses, metrics, tests and decision rules are unchanged.</p>
-<h2 id="8-causal-language">8. Causal language</h2>
+<h2>8. Causal language</h2>
 <p>Only B randomises anything about the tool result, and only with respect to the injected text. A, C and D are observational or conditional on sampled paths. Reports must keep &quot;observed&quot;, &quot;hypothesis&quot; and &quot;unverified explanation&quot; apart.</p>
 
 </div>

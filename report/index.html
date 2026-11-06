@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>工具反馈后的高熵：讨论</title>
+<meta name="description" content="讨论用的精简版：几张关键图和结论。">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body class="deck">
+<div class="deck-bar">
+  <span id="pager" class="pager"></span>
+  <a href="../">全部结果</a>
+  <button id="theme" type="button" aria-label="切换深色或浅色">深浅</button>
+</div>
+
+<section class="slide title-slide">
+  <p class="eyebrow">smoke test · Yunxiang (Kevin) Mo · 2026-11-06</p>
+  <h1>工具反馈后的高熵，<br>是探索还是无效续写？</h1>
+  <p class="answer">在这个模型和规模上，<strong>高熵本身两者都说明不了。</strong></p>
+  <p class="deck-foot">一个模型 · 4-bit · 最多 36 题 · 只看推理，没有训练<br>第一方向仍是综述，这是附带的小型实证</p>
+</section>
+
+<section class="slide">
+  <h2>工具返回后，熵确实上升</h2>
+  <div class="slide-split">
+    <div class="side">
+      <div class="big"><span class="big-l">第一轮 H10<br>（前 10 个 token 的平均熵）</span><span class="big-v">.176</span></div>
+      <div class="big"><span class="big-l">工具后 H10</span><span class="big-v">.685</span></div>
+    </div>
+    <div class="chart" id="c-profile" data-fit="170" role="img" aria-label="折线图：工具结果后的轮，平均熵明显高于第一轮"></div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>熵和质量可以分开变动</h2>
+  <p class="slide-sub"><span class="k-dot on"></span>检出 <span class="k-dot"></span>未检出 · 相对 <code>normal</code> 的差值，95% CI，15 个前缀</p>
+  <div class="panels">
+    <div><h4>H10 差值（nats）</h4><div class="chart" id="c-forest-h" data-fit="220" role="img" aria-label="各条件相对 normal 的 H10 差值"></div></div>
+    <div><h4>成功率差值</h4><div class="chart" id="c-forest-s" data-fit="220" role="img" aria-label="各条件相对 normal 的成功率差值"></div></div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>同一前缀，只换工具结果</h2>
+  <div class="tw"><table><thead><tr><th>条件</th><th>工具结果</th><th class="n">H_first</th><th>续写</th><th><span class="nw">结果</span></th></tr></thead><tbody><tr><td><code>normal</code></td><td><code>63</code></td><td class="n">.141</td><td><code>\boxed{63}</code></td><td><span class="nw">正确</span></td></tr><tr class="hl"><td><code>perturbed</code></td><td><code>39</code></td><td class="n">.035</td><td><code>\boxed{39}</code>，并写“已通过代码验证”</td><td><span class="nw">错误</span></td></tr><tr><td><code>error</code></td><td><code>ZeroDivisionError</code></td><td class="n">.002</td><td>说明出错，重写循环</td><td><span class="nw">正确</span></td></tr><tr><td><code>verbose</code></td><td><code>63</code> + 沙箱日志</td><td class="n">1.304</td><td><code>\boxed{63}</code></td><td><span class="nw">正确</span></td></tr></tbody></table></div>
+  <p class="slide-sub">单个前缀的例子，答案是 63</p>
+</section>
+
+<section class="slide">
+  <h2>void 几乎是一个固定字符串</h2>
+  <div class="slide-split">
+    <div class="side">
+      <div class="big"><span class="big-l"><code>void_eos</code> 中是 <code>Reach max function call limit.</code></span><span class="big-v">199/216</span></div>
+      <div class="big"><span class="big-l">P(<code>Reach</code>)，已调用 4 次，加 <code>\n</code></span><span class="big-v">.4042</span></div>
+      <div class="big"><span class="big-l">不加 <code>\n</code></span><span class="big-v">.0007</span></div>
+    </div>
+    <div class="chart" id="c-probe" data-fit="170" role="img" aria-label="折线图：加换行后缀时 P(Reach) 随调用次数上升"></div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>相关和分支对比，都没有可靠的结果</h2>
+  <div class="panels">
+    <div><h4>A：ρ=−.446，p=.045，BH .262</h4><div class="chart" id="c-scatter" data-fit="210" role="img" aria-label="散点图：30 个状态的 H10 与成功率"></div></div>
+    <div><h4>C：分支正确率，n=10，没有策略显著胜过 <code>random</code></h4><div class="chart" id="c-arms" data-fit="210" role="img" aria-label="条形图：五种分支策略的分支正确率"></div></div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>现在还不能说的</h2>
+  <ul class="points">
+    <li><strong>H_first 只是 4-bit 的性质。</strong>对 8-bit 的 Spearman .643，自身对照 .998</li>
+    <li><strong>样本小。</strong>未检出不等于没有效应</li>
+    <li><strong>没有训练。</strong>不能支持也不能否定梯度爆炸</li>
+    <li><strong><code>Reach</code> 字符串的来源未知</strong></li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h2>想请教</h2>
+  <ol class="points">
+    <li>这些结果值得放进综述，作为一节小型实证吗？</li>
+    <li>形式/内容的分解和 void 字符串，哪个值得继续查？</li>
+    <li>如果继续，需要 GPU 吗？（fp16、50 个以上前缀、ARPO）</li>
+  </ol>
+  <p class="deck-foot">全部结果：moyunxiang.com/tir</p>
+</section>
+
+<div id="tip" role="status" hidden></div>
+<script>const DATA = {"profile":{"post":[{"p":0,"h":0.4698,"n":2641},{"p":1,"h":0.8047,"n":2640},{"p":2,"h":1.0169,"n":2640},{"p":3,"h":0.9089,"n":2640},{"p":4,"h":0.7535,"n":2640},{"p":5,"h":0.7633,"n":2640},{"p":6,"h":0.813,"n":2639},{"p":7,"h":0.883,"n":2438},{"p":8,"h":0.9144,"n":2438},{"p":9,"h":0.9129,"n":2438},{"p":10,"h":0.881,"n":2438},{"p":11,"h":0.8724,"n":2438},{"p":12,"h":0.8709,"n":2438},{"p":13,"h":0.8621,"n":2438},{"p":14,"h":0.8578,"n":2438},{"p":15,"h":0.8703,"n":2438},{"p":16,"h":0.8925,"n":2436},{"p":17,"h":0.8836,"n":2436},{"p":18,"h":0.8652,"n":2434},{"p":19,"h":0.8747,"n":2434},{"p":20,"h":0.8808,"n":2431},{"p":21,"h":0.907,"n":2431},{"p":22,"h":0.8922,"n":2429},{"p":23,"h":0.9027,"n":2429},{"p":24,"h":0.888,"n":2429},{"p":25,"h":0.9285,"n":2428},{"p":26,"h":0.9163,"n":2428},{"p":27,"h":0.9058,"n":2427},{"p":28,"h":0.9348,"n":2426},{"p":29,"h":0.943,"n":2424},{"p":30,"h":0.919,"n":2424},{"p":31,"h":0.8838,"n":2424},{"p":32,"h":0.9162,"n":2424},{"p":33,"h":0.9255,"n":2423},{"p":34,"h":0.9242,"n":2417},{"p":35,"h":0.9298,"n":2416},{"p":36,"h":0.9093,"n":2413},{"p":37,"h":0.9163,"n":2412},{"p":38,"h":0.8808,"n":2411},{"p":39,"h":0.8834,"n":2411},{"p":40,"h":0.8755,"n":2405},{"p":41,"h":0.8571,"n":2404},{"p":42,"h":0.8651,"n":2401},{"p":43,"h":0.8823,"n":2401},{"p":44,"h":0.879,"n":2401},{"p":45,"h":0.8518,"n":2399},{"p":46,"h":0.8509,"n":2397},{"p":47,"h":0.8433,"n":2390},{"p":48,"h":0.849,"n":2386},{"p":49,"h":0.8311,"n":2382},{"p":50,"h":0.8261,"n":2379},{"p":51,"h":0.8644,"n":2376},{"p":52,"h":0.8239,"n":2372},{"p":53,"h":0.8214,"n":2366},{"p":54,"h":0.845,"n":2365},{"p":55,"h":0.8423,"n":2362},{"p":56,"h":0.808,"n":2359},{"p":57,"h":0.7947,"n":2355},{"p":58,"h":0.8136,"n":2353},{"p":59,"h":0.7831,"n":2349},{"p":60,"h":0.7901,"n":2345},{"p":61,"h":0.8056,"n":2342},{"p":62,"h":0.7714,"n":2339},{"p":63,"h":0.7765,"n":2338},{"p":64,"h":0.7911,"n":2337},{"p":65,"h":0.7911,"n":2333},{"p":66,"h":0.7523,"n":2329},{"p":67,"h":0.7442,"n":2328},{"p":68,"h":0.7573,"n":2324},{"p":69,"h":0.7116,"n":2319},{"p":70,"h":0.7405,"n":2315},{"p":71,"h":0.7375,"n":2315},{"p":72,"h":0.7043,"n":2311},{"p":73,"h":0.7193,"n":2306},{"p":74,"h":0.7096,"n":2303},{"p":75,"h":0.7084,"n":2301},{"p":76,"h":0.6994,"n":2298},{"p":77,"h":0.7182,"n":2298},{"p":78,"h":0.6969,"n":2296},{"p":79,"h":0.697,"n":2295},{"p":80,"h":0.684,"n":2290},{"p":81,"h":0.6983,"n":2287},{"p":82,"h":0.7085,"n":2284},{"p":83,"h":0.6907,"n":2280},{"p":84,"h":0.6828,"n":2275},{"p":85,"h":0.6915,"n":2273},{"p":86,"h":0.6932,"n":2268},{"p":87,"h":0.6714,"n":2266},{"p":88,"h":0.6663,"n":2264},{"p":89,"h":0.6735,"n":2262},{"p":90,"h":0.655,"n":2262},{"p":91,"h":0.6431,"n":2262},{"p":92,"h":0.6068,"n":2261},{"p":93,"h":0.6305,"n":2261},{"p":94,"h":0.6085,"n":2258},{"p":95,"h":0.6215,"n":2258},{"p":96,"h":0.6112,"n":2255},{"p":97,"h":0.6378,"n":2253},{"p":98,"h":0.6074,"n":2252},{"p":99,"h":0.596,"n":2252}],"first":[{"p":0,"h":0.0176,"n":144},{"p":1,"h":0.3621,"n":144},{"p":2,"h":0.3019,"n":144},{"p":3,"h":0.101,"n":144},{"p":4,"h":0.0879,"n":144},{"p":5,"h":0.0932,"n":144},{"p":6,"h":0.201,"n":144},{"p":7,"h":0.079,"n":144},{"p":8,"h":0.3364,"n":144},{"p":9,"h":0.1791,"n":144},{"p":10,"h":0.2308,"n":144},{"p":11,"h":0.1743,"n":144},{"p":12,"h":0.206,"n":144},{"p":13,"h":0.196,"n":144},{"p":14,"h":0.1664,"n":144},{"p":15,"h":0.2258,"n":144},{"p":16,"h":0.1413,"n":144},{"p":17,"h":0.1764,"n":144},{"p":18,"h":0.2312,"n":144},{"p":19,"h":0.1733,"n":144},{"p":20,"h":0.2047,"n":144},{"p":21,"h":0.1982,"n":144},{"p":22,"h":0.2091,"n":144},{"p":23,"h":0.229,"n":144},{"p":24,"h":0.1986,"n":144},{"p":25,"h":0.1521,"n":144},{"p":26,"h":0.1649,"n":144},{"p":27,"h":0.193,"n":144},{"p":28,"h":0.2124,"n":144},{"p":29,"h":0.1566,"n":144},{"p":30,"h":0.1565,"n":144},{"p":31,"h":0.1775,"n":144},{"p":32,"h":0.1672,"n":144},{"p":33,"h":0.1705,"n":144},{"p":34,"h":0.1469,"n":144},{"p":35,"h":0.2098,"n":144},{"p":36,"h":0.1786,"n":144},{"p":37,"h":0.1657,"n":144},{"p":38,"h":0.1547,"n":144},{"p":39,"h":0.1747,"n":144},{"p":40,"h":0.1743,"n":144},{"p":41,"h":0.1756,"n":144},{"p":42,"h":0.1367,"n":144},{"p":43,"h":0.1396,"n":144},{"p":44,"h":0.0935,"n":144},{"p":45,"h":0.1254,"n":144},{"p":46,"h":0.1572,"n":144},{"p":47,"h":0.1755,"n":144},{"p":48,"h":0.1731,"n":144},{"p":49,"h":0.1827,"n":144},{"p":50,"h":0.1941,"n":144},{"p":51,"h":0.1942,"n":144},{"p":52,"h":0.1846,"n":144},{"p":53,"h":0.1856,"n":144},{"p":54,"h":0.1528,"n":144},{"p":55,"h":0.1193,"n":144},{"p":56,"h":0.1831,"n":144},{"p":57,"h":0.1833,"n":144},{"p":58,"h":0.1833,"n":144},{"p":59,"h":0.1857,"n":144},{"p":60,"h":0.1331,"n":144},{"p":61,"h":0.1888,"n":144},{"p":62,"h":0.1968,"n":144},{"p":63,"h":0.1976,"n":144},{"p":64,"h":0.1648,"n":144},{"p":65,"h":0.1628,"n":144},{"p":66,"h":0.159,"n":144},{"p":67,"h":0.1814,"n":144},{"p":68,"h":0.1989,"n":144},{"p":69,"h":0.1636,"n":144},{"p":70,"h":0.1713,"n":144},{"p":71,"h":0.144,"n":144},{"p":72,"h":0.1659,"n":144},{"p":73,"h":0.1467,"n":144},{"p":74,"h":0.1796,"n":144},{"p":75,"h":0.1925,"n":144},{"p":76,"h":0.1741,"n":144},{"p":77,"h":0.1406,"n":144},{"p":78,"h":0.1569,"n":144},{"p":79,"h":0.197,"n":144},{"p":80,"h":0.1602,"n":144},{"p":81,"h":0.1732,"n":144},{"p":82,"h":0.1484,"n":144},{"p":83,"h":0.1726,"n":144},{"p":84,"h":0.1683,"n":144},{"p":85,"h":0.2076,"n":144},{"p":86,"h":0.1911,"n":144},{"p":87,"h":0.2386,"n":144},{"p":88,"h":0.1695,"n":144},{"p":89,"h":0.1675,"n":144},{"p":90,"h":0.1987,"n":144},{"p":91,"h":0.1452,"n":144},{"p":92,"h":0.2086,"n":144},{"p":93,"h":0.1612,"n":144},{"p":94,"h":0.1047,"n":144},{"p":95,"h":0.1319,"n":144},{"p":96,"h":0.1411,"n":144},{"p":97,"h":0.1577,"n":144},{"p":98,"h":0.1646,"n":144},{"p":99,"h":0.1424,"n":144}]},"forest":[{"group":"只改形式","conds":[{"cond":"verbose","desc":"同样的输出，包在沙箱日志里","H10":{"mean":0.2497,"lo":0.0931,"hi":0.4516,"detected":true,"s":"+.250","slo":".093","shi":".452","sholm":".027","scond":".829","snorm":".579"},"success":{"mean":0.0333,"lo":-0.0667,"hi":0.1333,"detected":false,"s":"+.033","slo":"−.067","shi":".133","sholm":".747","scond":".656","snorm":".622"}},{"cond":"text_only","desc":"同样的输出，不标记为工具结果","H10":{"mean":0.1622,"lo":0.1016,"hi":0.2358,"detected":true,"s":"+.162","slo":".102","shi":".236","sholm":".002","scond":".741","snorm":".579"},"success":{"mean":-0.0333,"lo":-0.1,"hi":0.0222,"detected":false,"s":"−.033","slo":"−.100","shi":".022","sholm":".747","scond":".589","snorm":".622"}}]},{"group":"只改内容","conds":[{"cond":"perturbed","desc":"数字改错，格式和长度不变","H10":{"mean":0.099,"lo":0.0138,"hi":0.1832,"detected":false,"s":"+.099","slo":".014","shi":".183","sholm":".096","scond":".678","snorm":".579"},"success":{"mean":-0.3333,"lo":-0.5,"hi":-0.1778,"detected":true,"s":"−.333","slo":"−.500","shi":"−.178","sholm":".030","scond":".289","snorm":".622"}},{"cond":"irrelevant","desc":"换成另一道题的输出","H10":{"mean":0.1736,"lo":0.0629,"hi":0.2933,"detected":true,"s":"+.174","slo":".063","shi":".293","sholm":".031","scond":".753","snorm":".579"},"success":{"mean":-0.1778,"lo":-0.3556,"hi":-0.0222,"detected":false,"s":"−.178","slo":"−.356","shi":"−.022","sholm":".312","scond":".444","snorm":".622"}}]},{"group":"失败或没有信息","conds":[{"cond":"error","desc":"ZeroDivisionError","H10":{"mean":-0.0005,"lo":-0.1145,"hi":0.1222,"detected":false,"s":"−.000","slo":"−.114","shi":".122","sholm":".934","scond":".579","snorm":".579"},"success":{"mean":-0.0889,"lo":-0.2111,"hi":0.0111,"detected":false,"s":"−.089","slo":"−.211","shi":".011","sholm":".747","scond":".533","snorm":".622"}},{"cond":"empty","desc":"空输出","H10":{"mean":-0.308,"lo":-0.4831,"hi":-0.1437,"detected":true,"s":"−.308","slo":"−.483","shi":"−.144","sholm":".013","scond":".271","snorm":".579"},"success":{"mean":-0.1667,"lo":-0.3444,"hi":-0.0111,"detected":false,"s":"−.167","slo":"−.344","shi":"−.011","sholm":".370","scond":".456","snorm":".622"}}]}],"probe":{"suffix":[{"mean":0.0009,"lo":0.0003,"hi":0.0015,"problems":19},{"mean":0.1687,"lo":0.0637,"hi":0.3036,"problems":15},{"mean":0.3545,"lo":0.2072,"hi":0.5305,"problems":15},{"mean":0.4042,"lo":0.2784,"hi":0.5117,"problems":9}],"no_suffix":[{"mean":0.0,"lo":0.0,"hi":0.0001,"problems":19},{"mean":0.0001,"lo":0.0,"hi":0.0004,"problems":15},{"mean":0.0002,"lo":0.0001,"hi":0.0004,"problems":15},{"mean":0.0007,"lo":0.0002,"hi":0.0012,"problems":9}],"suffix_blank_result":[{"mean":0.0001,"lo":0.0,"hi":0.0001,"problems":19},{"mean":0.0003,"lo":0.0001,"hi":0.0007,"problems":15},{"mean":0.0008,"lo":0.0002,"hi":0.0012,"problems":15},{"mean":0.0037,"lo":0.0007,"hi":0.0073,"problems":9}]},"states":[{"sid":"aime24_01:r0:t2","H10":0.39493,"success":0.16666666666666666,"valid":0.16666666666666666,"label":""},{"sid":"aime24_01:r3:t2","H10":0.13681833333333335,"success":0.5,"valid":0.5,"label":""},{"sid":"aime24_03:r1:t4","H10":1.0331509523809526,"success":0.6666666666666666,"valid":0.6666666666666666,"label":""},{"sid":"aime24_03:r2:t1","H10":0.5810366666666668,"success":0.5,"valid":0.5,"label":""},{"sid":"aime24_05:r0:t4","H10":1.8371680952380955,"success":0.0,"valid":0.0,"label":""},{"sid":"aime24_05:r2:t3","H10":1.6479116666666667,"success":0.16666666666666666,"valid":0.16666666666666666,"label":""},{"sid":"aime24_10:r1:t3","H10":1.7060733333333333,"success":0.8333333333333334,"valid":0.8333333333333334,"label":"r1:t3 高熵且有效"},{"sid":"aime24_10:r3:t3","H10":2.0361366666666667,"success":0.0,"valid":0.0,"label":"r3:t3 高熵且退化"},{"sid":"aime24_16:r0:t1","H10":0.5008366666666666,"success":0.6666666666666666,"valid":0.6666666666666666,"label":""},{"sid":"aime24_16:r1:t3","H10":0.47443166666666664,"success":0.0,"valid":0.0,"label":""},{"sid":"aime24_28:r2:t2","H10":0.6882450000000001,"success":0.5,"valid":0.8333333333333334,"label":""},{"sid":"aime24_28:r3:t4","H10":1.5407133333333334,"success":0.0,"valid":0.0,"label":""},{"sid":"math_algebra_1082:r0:t1","H10":0.565465,"success":1.0,"valid":1.0,"label":""},{"sid":"math_algebra_1082:r3:t1","H10":0.8075733333333334,"success":0.16666666666666666,"valid":0.16666666666666666,"label":""},{"sid":"math_algebra_776:r1:t1","H10":0.6373066666666666,"success":0.5,"valid":0.5,"label":""},{"sid":"math_algebra_776:r3:t2","H10":1.2944083333333334,"success":0.3333333333333333,"valid":0.5,"label":""},{"sid":"math_counting_and_probability_1003:r0:t1","H10":0.4992183333333333,"success":0.0,"valid":0.16666666666666666,"label":""},{"sid":"math_counting_and_probability_1003:r1:t3","H10":0.22599833333333338,"success":0.0,"valid":0.16666666666666666,"label":""},{"sid":"math_counting_and_probability_25149:r0:t1","H10":0.09476166666666667,"success":1.0,"valid":1.0,"label":""},{"sid":"math_counting_and_probability_25149:r2:t1","H10":1.2490649999999999,"success":1.0,"valid":1.0,"label":""},{"sid":"math_counting_and_probability_765:r0:t1","H10":0.49303499999999995,"success":1.0,"valid":1.0,"label":""},{"sid":"math_counting_and_probability_765:r3:t2","H10":0.22003833333333334,"success":1.0,"valid":1.0,"label":""},{"sid":"math_intermediate_algebra_121:r1:t1","H10":0.1984516666666667,"success":1.0,"valid":1.0,"label":""},{"sid":"math_intermediate_algebra_121:r3:t2","H10":0.7674366666666667,"success":0.8333333333333334,"valid":0.8333333333333334,"label":""},{"sid":"math_number_theory_483:r1:t2","H10":0.01260833333333333,"success":1.0,"valid":1.0,"label":""},{"sid":"math_number_theory_483:r2:t1","H10":0.28018000000000004,"success":1.0,"valid":1.0,"label":""},{"sid":"math_prealgebra_2086:r0:t1","H10":0.23138,"success":1.0,"valid":1.0,"label":""},{"sid":"math_prealgebra_2086:r1:t1","H10":0.505,"success":1.0,"valid":1.0,"label":""},{"sid":"math_precalculus_675:r0:t2","H10":0.5644233333333334,"success":1.0,"valid":1.0,"label":""},{"sid":"math_precalculus_675:r3:t1","H10":0.6246516666666666,"success":0.16666666666666666,"valid":0.16666666666666666,"label":""}],"arms":[{"arm":"tool_boundary","branch_acc":0.572,"s":".572","any":".9","vs":"5/1，.219"},{"arm":"random","branch_acc":0.3,"s":".300","any":".5","vs":"对照"},{"arm":"low_entropy","branch_acc":0.283,"s":".283","any":".6","vs":"3/2，1.000"},{"arm":"posttool_high","branch_acc":0.262,"s":".262","any":".7","vs":"2/0，.500"},{"arm":"high_entropy","branch_acc":0.26,"s":".260","any":".6","vs":"4/3，1.000"}]};</script>
+<script src="../charts.js"></script>
+</body>
+</html>

@@ -11,8 +11,16 @@
     return n;
   }
   function svgIn(el, h) {
-    const w = Math.max(280, Math.floor(el.clientWidth));
-    const svg = s(el, "svg", { viewBox: `0 0 ${w} ${h}`, height: h, "aria-hidden": "true" });
+    const cw = Math.max(280, Math.floor(el.clientWidth));
+    // On the discussion slides data-fit is the height reserved for the rest of the slide;
+    // the chart grows to fill what is left, keeping enough logical width for its labels.
+    let k = 1;
+    if (el.dataset.fit) {
+      k = Math.min((innerHeight - Number(el.dataset.fit)) / h, cw / 340, 1.7);
+      k = Math.max(k, 1);
+    }
+    const w = Math.floor(cw / k);
+    const svg = s(el, "svg", { viewBox: `0 0 ${w} ${h}`, height: Math.round(h * k), "aria-hidden": "true" });
     return { svg, w };
   }
   const scale = (d0, d1, r0, r1) => (x) => r0 + ((x - d0) / (d1 - d0)) * (r1 - r0);
@@ -320,15 +328,21 @@
   }
 
   function drawAll() {
-    profile(document.getElementById("c-profile"));
-    forest(document.getElementById("c-forest-h"), "H10");
-    forest(document.getElementById("c-forest-s"), "success");
-    probe(document.getElementById("c-probe"));
-    scatter(document.getElementById("c-scatter"));
-    arms(document.getElementById("c-arms"));
+    const draw = (id, fn, ...args) => {
+      const el = document.getElementById(id);
+      if (el) fn(el, ...args);
+    };
+    draw("c-profile", profile);
+    draw("c-forest-h", forest, "H10");
+    draw("c-forest-s", forest, "success");
+    draw("c-probe", probe);
+    draw("c-scatter", scatter);
+    draw("c-arms", arms);
   }
   drawAll();
   let timer;
+  // A chart inside a closed <details> has no width yet; draw it again when opened.
+  document.addEventListener("toggle", drawAll, true);
   addEventListener("resize", () => {
     clearTimeout(timer);
     timer = setTimeout(drawAll, 120);
@@ -348,26 +362,33 @@
     try { localStorage.setItem("tir-theme", root.dataset.theme); } catch (e) { /* storage blocked */ }
   });
 
-  /* Section navigation: highlight the current section, left/right arrows jump */
+  /* Section navigation: highlight the current section, arrow keys jump */
+  const deck = document.body.classList.contains("deck");
   const links = [...document.querySelectorAll("nav.top a[href^='#']")];
-  const sections = links.map((a) => document.querySelector(a.getAttribute("href")));
+  const sections = deck ? [...document.querySelectorAll(".slide")] : links.map((a) => document.querySelector(a.getAttribute("href")));
+  const pager = document.getElementById("pager");
   function current() {
     let idx = 0;
+    const line = deck ? innerHeight / 2 : 90;
     sections.forEach((sec, i) => {
-      if (sec.getBoundingClientRect().top <= 90) idx = i;
+      if (sec.getBoundingClientRect().top <= line) idx = i;
     });
     return idx;
   }
   function mark() {
     const i = current();
     links.forEach((a, j) => a.classList.toggle("active", i === j));
+    if (pager) pager.textContent = `${i + 1} / ${sections.length}`;
   }
   addEventListener("scroll", mark, { passive: true });
   mark();
+  const next = deck ? ["ArrowRight", "ArrowDown", "PageDown", " "] : ["ArrowRight"];
+  const prev = deck ? ["ArrowLeft", "ArrowUp", "PageUp"] : ["ArrowLeft"];
   addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-    const i = current() + (e.key === "ArrowRight" ? 1 : -1);
+    const step = next.includes(e.key) ? 1 : prev.includes(e.key) ? -1 : 0;
+    if (!step) return;
+    const i = current() + step;
     if (i >= 0 && i < sections.length) {
       e.preventDefault();
       sections[i].scrollIntoView();
