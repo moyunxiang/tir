@@ -1,0 +1,1937 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>完整报告（中文）</title>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<div class="doc">
+<p class="back"><a href="./">← 返回页面</a> <a href="report_en.html">English</a></p>
+<h1>工具反馈后的高熵：四组 smoke test 报告</h1>
+<blockquote>
+<p>2026-11-06。所有数字来自 <code>experiments/smoke/results/simpletir7b/</code>，原始轨迹在 <code>experiments/smoke/runs/simpletir7b/</code>（不进 git）。预注册：<code>PREREG.md</code>，commit <code>ca8d6c8</code>，在任何真实 rollout 之前提交。</p>
+<p>这是笔记本上的 smoke test：一个模型、4-bit 量化、最多 36 道题。它能发现大效应，也能发现设计错误，但不能确立小效应。“未检出”只表示在这个规模下没有检出。</p>
+</blockquote>
+<h2 id="1-结论">1. 结论</h2>
+<h3>观察结果</h3>
+<ol>
+<li><strong>熵和续写质量可以分开变动（B，干预实验，15 个前缀）。</strong> 只改形式时，H10 上升，但质量没有检出变化：<code>verbose</code> H10 +0.250（Holm .027），成功率 +0.033（Holm .747）；<code>text_only</code> H10 +0.162（Holm .002），成功率 −0.033（Holm .747）。只把数字改错时，成功率下降，H10 的上升未检出：<code>perturbed</code> 成功率 −0.333（Holm .030），有效率 −0.256（Holm .031），H10 +0.099（Holm .096）。</li>
+<li><strong>预注册的解离判据成立。</strong> 例如 <code>perturbed</code> 对 <code>text_only</code>：H10 只差 0.063，成功率差 0.300（95% CI −0.433 到 −0.167）。42 组比较中有 6 组满足判据（未做多重比较校正）。</li>
+<li><strong>高 H10 的状态平均质量更低，但没有通过预注册校正（A）。</strong> H10 与成功率的组内 Spearman ρ=−0.446（置换 p=.045，BH .262）。所有预注册主要相关都未通过 BH。H10 依赖采样路径，不能作因果解读；不依赖路径的 H_first 与成功率没有这个关系（ρ=+0.166，p=.562）。也没有证据表明这一关系是工具特有的：与 placebo 的交互项 CI 包含 0。</li>
+<li><strong>void turn 几乎是一个固定字符串（D）。</strong> 216 个 <code>void_eos</code> 中有 199 个（92.1%）的最后一轮就是 <code>Reach max function call limit.</code>，其中 193 个出现在已调用 4 次工具之后。在同一状态的续写之间，void 和非 void 的 H10 没有检出差异（差值 −0.047，CI −0.125 到 0.020，n=75 个状态）。</li>
+<li><strong>这个字符串由协议的最后一轮 <code>\n</code> 和非空工具结果共同触发（事后探针，只看第一个 token）。</strong> 已调用 4 次时，P(<code>Reach</code>) 在没有后缀时为 0.0007，加后缀后为 0.4042（CI 0.278–0.512），加后缀但工具结果为空时为 0.0037。</li>
+<li><strong>推理时按熵选分支点没有显示优势（C，10 题）。</strong> 没有哪个策略显著胜过 <code>random</code>。<code>tool_boundary</code> 的点估计最高（分支正确率 .572，<code>random</code> .300；符号检验赢 5 输 1，p=.219）。<code>high_entropy</code> .260，<code>posttool_high</code> .262。</li>
+<li><strong><code>H_first</code> 对量化敏感。</strong> 4-bit 对 8-bit，工具返回后首 token 的 Spearman 只有 .643（n=18），平均 abs(ΔH) .221；同一 4-bit 模型的回放对照分别是 .998 和 .009。全部 token 上 Spearman 为 .965，超过预注册的 0.9；但自身对照也只有 .975，这个指标受大量接近 0 的熵值影响，判断时应看 abs(ΔH)。</li>
+</ol>
+<h3>假设（未验证）</h3>
+<ul>
+<li>高熵至少混合了两种来源：反馈的形式带来的不确定性，以及内容与上下文冲突带来的不确定性。前者在这里不伤质量。</li>
+<li>按熵给奖励或选分支的方法，可能会奖励和内容无关的格式变化。这里只测了推理时的续写，没有训练。</li>
+<li>模型在训练中见过这种最后一轮的格式和限制字符串，因此学到了这个反应。这个字符串的来源目前未知：公开的 SimpleTIR 代码和已查的论文里都没有找到。</li>
+</ul>
+<h3>尚未验证的解释</h3>
+<ul>
+<li>没有计算训练梯度。<code>gn</code> 只是 log p(a) 对 logit 的灵敏度代理量，它在各类轨迹上的最大值都约为 1.27–1.39。<strong>这些结果不能支持也不能否定梯度爆炸。</strong></li>
+<li><code>tool_boundary</code> 点估计最高的原因未知，它的分支位置和其他策略不同（§3.4），n=10。</li>
+<li><code>perturbed</code> 降低质量的机制未确定。案例中可以看到模型直接采信错误数字（§4），但 <code>adopt</code> 的差值未检出（−0.278，Holm .151）。</li>
+</ul>
+<h2 id="2-实验配置">2. 实验配置</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>取值</th>
+<th>依据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>模型</td>
+<td><code>ZhenghaiXue/Qwen2.5-7B-SimpleTIR</code>，commit <code>fbe635a</code>，4-bit MLX</td>
+<td>公开权重，协议公开；只有 M1 Pro 16GB 可用</td>
+</tr>
+<tr>
+<td>采样</td>
+<td>T=1，无 top-p / top-k，每条序列独立 PRNG</td>
+<td>RL rollout 分布；SimpleTIR 验证用 top_p=0.7，成功率不能直接对比</td>
+</tr>
+<tr>
+<td>熵</td>
+<td>全词表 Shannon 熵（nats），逐 token 记录</td>
+<td>与 ARPO、APPO、ProCredit 同定义</td>
+</tr>
+<tr>
+<td>协议</td>
+<td>复现 SimpleTIR <code>agent_utils.py</code>：首个完整代码块后停止；<code>\nCode execution result: {stdout}\n</code>；错误取 stderr 末行；512 字符和 256 token 限制；5 s 超时；max_turns 5；最后一轮追加 <code>\n</code></td>
+<td><code>formats.py</code></td>
+</tr>
+<tr>
+<td>长度限制</td>
+<td>单轮 2048 token；根轨迹 4096；续写 2500</td>
+<td>官方为 8000（训练）/ 12000（评测），笔记本预算不够，见 <code>PREREG.md</code> §7</td>
+</tr>
+<tr>
+<td>题目</td>
+<td>种子 4212：20 道 AIME 2024 + 40 道 MATH level 4–5，整数答案；校准实际 36 题</td>
+<td><code>data/problems_all.json</code>，<code>run_exps.py</code></td>
+</tr>
+<tr>
+<td>沙箱</td>
+<td><code>sandbox-exec</code>：无网络，不写临时目录外，不读 <code>$HOME</code>，无子进程，内存 2GB</td>
+<td><code>sandbox.py</code></td>
+</tr>
+<tr>
+<td>规模</td>
+<td>校准 36×4 = 144；A 15 题 ×（2 工具后 + 1 placebo）×6 = 270；B 15 前缀 ×7 条件 ×6 = 630，另有 135 条首 token 记录；C 10 题 ×5 策略，186 条分支</td>
+<td><code>runs/simpletir7b/*.jsonl</code>，<code>config_*.json</code></td>
+</tr>
+<tr>
+<td>统计</td>
+<td>A：组内 Spearman，置换检验，题目聚类 bootstrap，BH；B：配对 Wilcoxon，每个结局内 Holm（6 个条件）；C：精确符号检验</td>
+<td><code>analyze.py</code></td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>项目</td>
+<td>配置项名称</td>
+<td>人工列出</td>
+<td>文本</td>
+<td>配置维度</td>
+<td><code>PREREG.md</code> §1</td>
+</tr>
+<tr>
+<td>取值</td>
+<td>实际运行使用的值</td>
+<td>读配置和代码</td>
+<td>文本 / 数值</td>
+<td>复现所需的设定</td>
+<td><code>config_*.json</code>，<code>run_exps.py</code></td>
+</tr>
+<tr>
+<td>依据</td>
+<td>选择理由或代码位置</td>
+<td>人工说明，非测量</td>
+<td>文本</td>
+<td>说明来源</td>
+<td><code>PREREG.md</code>，<code>formats.py</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-结果">3. 结果</h2>
+<h3>3.1 校准</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>来源</th>
+<th style="text-align:right">rollouts</th>
+<th style="text-align:right">题目</th>
+<th style="text-align:right">成功率</th>
+<th style="text-align:right">有效率</th>
+<th style="text-align:right">void_eos</th>
+<th style="text-align:right">budget</th>
+<th style="text-align:right">平均调用</th>
+<th style="text-align:right">平均 token</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AIME 2024</td>
+<td style="text-align:right">48</td>
+<td style="text-align:right">12</td>
+<td style="text-align:right">.208</td>
+<td style="text-align:right">.271</td>
+<td style="text-align:right">.167</td>
+<td style="text-align:right">.333</td>
+<td style="text-align:right">3.146</td>
+<td style="text-align:right">3106.6</td>
+</tr>
+<tr>
+<td>MATH</td>
+<td style="text-align:right">96</td>
+<td style="text-align:right">24</td>
+<td style="text-align:right">.865</td>
+<td style="text-align:right">.865</td>
+<td style="text-align:right">.052</td>
+<td style="text-align:right">.052</td>
+<td style="text-align:right">1.698</td>
+<td style="text-align:right">1400.4</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rollouts / 题目</td>
+<td>根轨迹数和题目数</td>
+<td>计数</td>
+<td>整数</td>
+<td>样本量</td>
+<td><code>calib_summary.csv</code></td>
+</tr>
+<tr>
+<td>成功率</td>
+<td>boxed 答案正确的比例</td>
+<td><code>grade_rollout</code> 的均值；CI not computed</td>
+<td>0–1</td>
+<td>最终正确</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>有效率</td>
+<td>以 boxed 答案结束，无 void、截断、轮次上限</td>
+<td>比例；CI not computed</td>
+<td>0–1</td>
+<td>正常结束</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>void_eos</td>
+<td>最后一轮既无代码块也无 boxed，且以 EOS 结束</td>
+<td>比例；CI not computed</td>
+<td>0–1</td>
+<td>void turn</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>budget</td>
+<td>碰到长度预算被截断</td>
+<td>比例；CI not computed</td>
+<td>0–1</td>
+<td>笔记本限制的影响</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>平均调用 / 平均 token</td>
+<td>每条轨迹的工具调用数和生成 token 数</td>
+<td>均值；CI not computed</td>
+<td>次 / token</td>
+<td>轨迹长度</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p><img src="results/simpletir7b/fig_entropy_profile_all.png" alt="熵随位置变化" /></p>
+<p><em>图 1：轮内各位置的平均熵。灰线是真正的第一轮（校准根轨迹）；蓝线是工具结果之后的轮。已排除从轮中途开始的续写。</em></p>
+<h3>3.2 实验 A：熵与续写质量</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>状态类型</th>
+<th style="text-align:right">状态数</th>
+<th style="text-align:right">H_first</th>
+<th style="text-align:right">H10</th>
+<th style="text-align:right">成功率</th>
+<th style="text-align:right">有效率</th>
+<th style="text-align:right">void</th>
+<th style="text-align:right">pass@6</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>工具后</td>
+<td style="text-align:right">30</td>
+<td style="text-align:right">.515</td>
+<td style="text-align:right">.728</td>
+<td style="text-align:right">.567</td>
+<td style="text-align:right">.594</td>
+<td style="text-align:right">.211</td>
+<td style="text-align:right">.800</td>
+</tr>
+<tr>
+<td>placebo</td>
+<td style="text-align:right">15</td>
+<td style="text-align:right">.323</td>
+<td style="text-align:right">.324</td>
+<td style="text-align:right">.533</td>
+<td style="text-align:right">.556</td>
+<td style="text-align:right">.167</td>
+<td style="text-align:right">.933</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>状态类型</td>
+<td>工具结果之后，或普通推理文本中随机位置</td>
+<td>按预注册规则选取</td>
+<td>类别</td>
+<td>工具后与对照</td>
+<td><code>A_state_means.csv</code></td>
+</tr>
+<tr>
+<td>状态数</td>
+<td>状态个数</td>
+<td>计数，每状态 6 条续写</td>
+<td>整数</td>
+<td>样本量</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>H_first</td>
+<td>状态后第一个 token 的熵</td>
+<td>精确值，不依赖采样</td>
+<td>nats，≥0</td>
+<td>不受续写路径影响</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>H10</td>
+<td>前 10 个生成 token 的平均熵</td>
+<td>先按续写平均，再按状态平均；依赖路径</td>
+<td>nats，≥0</td>
+<td>主要熵指标</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>成功率 / 有效率 / void</td>
+<td>续写中对应的比例</td>
+<td>状态内比例再平均；CI not computed</td>
+<td>0–1</td>
+<td>续写质量</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>pass@6</td>
+<td>6 条续写至少一条正确</td>
+<td>状态内指示变量的均值</td>
+<td>0–1</td>
+<td>多次采样的覆盖</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>H10 三分位</th>
+<th style="text-align:right">H10</th>
+<th style="text-align:right">H_first</th>
+<th style="text-align:right">成功率</th>
+<th style="text-align:right">有效率</th>
+<th style="text-align:right">void</th>
+<th style="text-align:right">其中 giveup</th>
+<th style="text-align:right">pass@6</th>
+<th style="text-align:right">策略多样性</th>
+<th style="text-align:right">degenerate</th>
+<th style="text-align:right">lexical</th>
+<th style="text-align:right">productive</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>低</td>
+<td style="text-align:right">.227</td>
+<td style="text-align:right">.224</td>
+<td style="text-align:right">.667</td>
+<td style="text-align:right">.683</td>
+<td style="text-align:right">.183</td>
+<td style="text-align:right">.133</td>
+<td style="text-align:right">.8</td>
+<td style="text-align:right">1.285</td>
+<td style="text-align:right">4</td>
+<td style="text-align:right">5</td>
+<td style="text-align:right">1</td>
+</tr>
+<tr>
+<td>中</td>
+<td style="text-align:right">.566</td>
+<td style="text-align:right">.305</td>
+<td style="text-align:right">.633</td>
+<td style="text-align:right">.683</td>
+<td style="text-align:right">.133</td>
+<td style="text-align:right">.133</td>
+<td style="text-align:right">.9</td>
+<td style="text-align:right">2.641</td>
+<td style="text-align:right">5</td>
+<td style="text-align:right">1</td>
+<td style="text-align:right">4</td>
+</tr>
+<tr>
+<td>高</td>
+<td style="text-align:right">1.392</td>
+<td style="text-align:right">1.017</td>
+<td style="text-align:right">.400</td>
+<td style="text-align:right">.417</td>
+<td style="text-align:right">.317</td>
+<td style="text-align:right">.300</td>
+<td style="text-align:right">.7</td>
+<td style="text-align:right">2.015</td>
+<td style="text-align:right">7</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">3</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>H10 三分位</td>
+<td>工具后状态按 H10 分三组</td>
+<td>全样本三分位，每组 10 个状态</td>
+<td>类别</td>
+<td>描述性分组</td>
+<td><code>A_by_tercile.csv</code></td>
+</tr>
+<tr>
+<td>H10、H_first、成功率、有效率、void、pass@6</td>
+<td>同上表</td>
+<td>组内均值；CI not computed</td>
+<td>同上表</td>
+<td>同上表</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>其中 giveup</td>
+<td>以 <code>Reach max function call limit.</code> 结束的比例</td>
+<td>事后特征</td>
+<td>0–1</td>
+<td>void 的主要来源</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>策略多样性</td>
+<td>首个代码块签名的有效数量</td>
+<td>exp(签名分布的 Shannon 熵)；<strong>启发式代理，不是对策略的判断</strong></td>
+<td>≥1</td>
+<td>续写的方法差异</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>degenerate / lexical / productive</td>
+<td>预注册分类（阈值见 <code>PREREG.md</code> §3）</td>
+<td>按有效率、成功率、多样性的规则分类，启发式</td>
+<td>状态数</td>
+<td>把高熵拆开</td>
+<td><code>A_taxonomy.csv</code></td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>预测量→结局（工具后，n=30 个状态，15 题）</th>
+<th style="text-align:right">ρ</th>
+<th style="text-align:right">置换 p</th>
+<th>95% CI</th>
+<th style="text-align:right">BH</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>H10→成功率</td>
+<td style="text-align:right">−.446</td>
+<td style="text-align:right">.045</td>
+<td>−.702, −.067</td>
+<td style="text-align:right">.262</td>
+</tr>
+<tr>
+<td>H10→有效率</td>
+<td style="text-align:right">−.394</td>
+<td style="text-align:right">.087</td>
+<td>−.683, .017</td>
+<td style="text-align:right">.262</td>
+</tr>
+<tr>
+<td>H10→void</td>
+<td style="text-align:right">.235</td>
+<td style="text-align:right">.255</td>
+<td>−.143, .552</td>
+<td style="text-align:right">.346</td>
+</tr>
+<tr>
+<td>H10→策略多样性（n=26）</td>
+<td style="text-align:right">.394</td>
+<td style="text-align:right">.240</td>
+<td>−.311, .823</td>
+<td style="text-align:right">.346</td>
+</tr>
+<tr>
+<td>H10→结果不确定性</td>
+<td style="text-align:right">−.286</td>
+<td style="text-align:right">.288</td>
+<td>−.668, .177</td>
+<td style="text-align:right">.346</td>
+</tr>
+<tr>
+<td>H10→答案多样性（n=26，退化）</td>
+<td style="text-align:right">.426</td>
+<td style="text-align:right">1.000</td>
+<td>.350, .740</td>
+<td style="text-align:right">1.000</td>
+</tr>
+<tr>
+<td>H_first→成功率（非主要）</td>
+<td style="text-align:right">.166</td>
+<td style="text-align:right">.562</td>
+<td>−.399, .626</td>
+<td style="text-align:right">not computed</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ρ</td>
+<td>组内 Spearman 相关</td>
+<td>按题目去均值后计算</td>
+<td>−1 到 1</td>
+<td>同一题内部的关联，非因果</td>
+<td><code>A_correlations.csv</code></td>
+</tr>
+<tr>
+<td>置换 p</td>
+<td>题目内置换 10,000 次</td>
+<td>双侧</td>
+<td>0–1</td>
+<td>单项显著性</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>95% CI</td>
+<td>题目聚类 bootstrap</td>
+<td>百分位法</td>
+<td>−1 到 1</td>
+<td>不确定性</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>BH</td>
+<td>Benjamini–Hochberg 校正后的 p</td>
+<td>预注册主要族共 6 项</td>
+<td>0–1</td>
+<td>校正后显著性</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p>事后斜率（标为事后分析）：控制题目固定效应时，H10 每增加 1 nat，成功率变化 −0.329（CI −0.833, −0.102）；再控制轮次 −0.313（−0.962, −0.060）；排除最后一轮状态 −0.305（−1.181, −0.069）。H_first 对应的斜率 +0.094（−0.107, 0.635）。工具后减 placebo 的交互项 −0.257（−0.432, 0.625），CI 包含 0。来源：<code>A_posthoc_slopes.csv</code>。</p>
+<p><img src="results/simpletir7b/fig_A_entropy_vs_quality.png" alt="A：熵与质量" /></p>
+<p><em>图 2：状态级 H10 与有效率、成功率、策略多样性。这些是观察性关系。</em></p>
+<h3>3.3 实验 B：工具反馈干预</h3>
+<p>同一前缀、同一种子列表，只替换工具结果。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>条件</th>
+<th style="text-align:right">H10</th>
+<th style="text-align:right">有效率</th>
+<th style="text-align:right">void</th>
+<th style="text-align:right">成功率</th>
+<th style="text-align:right">重新调用工具</th>
+<th style="text-align:right">adopt</th>
+<th style="text-align:right">平均 token</th>
+<th style="text-align:right">观察长度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>normal</code></td>
+<td style="text-align:right">.579</td>
+<td style="text-align:right">.678</td>
+<td style="text-align:right">.111</td>
+<td style="text-align:right">.622</td>
+<td style="text-align:right">.711</td>
+<td style="text-align:right">.400</td>
+<td style="text-align:right">1317.9</td>
+<td style="text-align:right">30.7</td>
+</tr>
+<tr>
+<td><code>perturbed</code></td>
+<td style="text-align:right">.678</td>
+<td style="text-align:right">.422</td>
+<td style="text-align:right">.244</td>
+<td style="text-align:right">.289</td>
+<td style="text-align:right">.878</td>
+<td style="text-align:right">.122</td>
+<td style="text-align:right">1605.8</td>
+<td style="text-align:right">30.7</td>
+</tr>
+<tr>
+<td><code>irrelevant</code></td>
+<td style="text-align:right">.753</td>
+<td style="text-align:right">.522</td>
+<td style="text-align:right">.289</td>
+<td style="text-align:right">.444</td>
+<td style="text-align:right">.889</td>
+<td style="text-align:right">.167</td>
+<td style="text-align:right">1508.8</td>
+<td style="text-align:right">31.1</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td style="text-align:right">.579</td>
+<td style="text-align:right">.567</td>
+<td style="text-align:right">.244</td>
+<td style="text-align:right">.533</td>
+<td style="text-align:right">.967</td>
+<td style="text-align:right">.000</td>
+<td style="text-align:right">1448.1</td>
+<td style="text-align:right">13.0</td>
+</tr>
+<tr>
+<td><code>verbose</code></td>
+<td style="text-align:right">.829</td>
+<td style="text-align:right">.722</td>
+<td style="text-align:right">.111</td>
+<td style="text-align:right">.656</td>
+<td style="text-align:right">.611</td>
+<td style="text-align:right">.478</td>
+<td style="text-align:right">1057.1</td>
+<td style="text-align:right">133.7</td>
+</tr>
+<tr>
+<td><code>text_only</code></td>
+<td style="text-align:right">.741</td>
+<td style="text-align:right">.656</td>
+<td style="text-align:right">.167</td>
+<td style="text-align:right">.589</td>
+<td style="text-align:right">.689</td>
+<td style="text-align:right">.378</td>
+<td style="text-align:right">1215.9</td>
+<td style="text-align:right">29.7</td>
+</tr>
+<tr>
+<td><code>empty</code></td>
+<td style="text-align:right">.271</td>
+<td style="text-align:right">.600</td>
+<td style="text-align:right">.144</td>
+<td style="text-align:right">.456</td>
+<td style="text-align:right">.744</td>
+<td style="text-align:right">.000</td>
+<td style="text-align:right">1424.8</td>
+<td style="text-align:right">6.0</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>条件</td>
+<td>注入的反馈（定义见 <code>PREREG.md</code> §4）</td>
+<td>同一前缀替换工具结果</td>
+<td>类别</td>
+<td>干预</td>
+<td><code>run_exps.py</code></td>
+</tr>
+<tr>
+<td>H10</td>
+<td>工具结果后前 10 个 token 的平均熵</td>
+<td>先按前缀内平均，再按前缀平均；依赖路径</td>
+<td>nats</td>
+<td>熵</td>
+<td><code>B_condition_means.csv</code></td>
+</tr>
+<tr>
+<td>有效率 / void / 成功率</td>
+<td>见 §3.2</td>
+<td>比例的均值，每条件 15 个前缀 ×6</td>
+<td>0–1</td>
+<td>质量</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>重新调用工具</td>
+<td>之后又调用工具的比例</td>
+<td>比例</td>
+<td>0–1</td>
+<td>模型是否重试</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>adopt</td>
+<td>最终答案包含注入内容中的数字</td>
+<td><strong>启发式字符串匹配</strong>，非直接观测</td>
+<td>0–1</td>
+<td>是否采信反馈</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>平均 token</td>
+<td>生成 token 数</td>
+<td>均值</td>
+<td>token</td>
+<td>续写长度</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>观察长度</td>
+<td>注入观察的 token 数</td>
+<td>均值</td>
+<td>token</td>
+<td>长度混杂</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p>相对 <code>normal</code> 的配对差值，格式为 差值 [95% CI]，Holm p。<strong>粗体</strong>表示按预注册规则“检出”（Holm p&lt;.05 且 CI 不含 0）：</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>条件</th>
+<th>H_first（精确）</th>
+<th>H10</th>
+<th>有效率</th>
+<th>void</th>
+<th>成功率</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>perturbed</code></td>
+<td>−.040 [−.154, .085], .454</td>
+<td>+.099 [.014, .183], .096</td>
+<td><strong>−.256 [−.378, −.133], .031</strong></td>
+<td>+.133 [.011, .256], .228</td>
+<td><strong>−.333 [−.500, −.178], .030</strong></td>
+</tr>
+<tr>
+<td><code>irrelevant</code></td>
+<td>−.084 [−.299, .158], .303</td>
+<td><strong>+.174 [.063, .293], .031</strong></td>
+<td>−.156 [−.322, −.000], .398</td>
+<td>+.178 [.067, .289], .074</td>
+<td>−.178 [−.356, −.022], .312</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td><strong>−.206 [−.343, −.086], .016</strong></td>
+<td>−.000 [−.114, .122], .934</td>
+<td>−.111 [−.245, .011], .459</td>
+<td>+.133 [.022, .244], .226</td>
+<td>−.089 [−.211, .011], .747</td>
+</tr>
+<tr>
+<td><code>verbose</code></td>
+<td><strong>+.704 [.385, 1.043], .016</strong></td>
+<td><strong>+.250 [.093, .452], .027</strong></td>
+<td>+.044 [−.067, .156], .977</td>
+<td>.000 [−.078, .089], 1.000</td>
+<td>+.033 [−.067, .133], .747</td>
+</tr>
+<tr>
+<td><code>text_only</code></td>
+<td><strong>+.333 [.136, .583], .003</strong></td>
+<td><strong>+.162 [.102, .236], .002</strong></td>
+<td>−.022 [−.089, .044], .977</td>
+<td>+.056 [.000, .122], .228</td>
+<td>−.033 [−.100, .022], .747</td>
+</tr>
+<tr>
+<td><code>empty</code></td>
+<td><strong>+.465 [.196, .757], .022</strong></td>
+<td><strong>−.308 [−.483, −.144], .013</strong></td>
+<td>−.078 [−.222, .044], .977</td>
+<td>+.033 [−.078, .144], 1.000</td>
+<td>−.167 [−.344, −.011], .370</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>条件</td>
+<td>与 <code>normal</code> 比较的条件</td>
+<td>按前缀配对，n=15</td>
+<td>类别</td>
+<td>干预</td>
+<td><code>B_effects.csv</code></td>
+</tr>
+<tr>
+<td>H_first（精确）</td>
+<td>第一个 token 的熵之差</td>
+<td>精确分布，不采样；<strong>只对 4-bit 模型成立（§3.6）</strong></td>
+<td>nats</td>
+<td>反馈的即时影响</td>
+<td><code>B_first_token_effects.csv</code></td>
+</tr>
+<tr>
+<td>H10</td>
+<td>H10 之差</td>
+<td>配对差值</td>
+<td>nats</td>
+<td>短程熵的变化</td>
+<td><code>B_effects.csv</code></td>
+</tr>
+<tr>
+<td>有效率 / void / 成功率</td>
+<td>比例之差</td>
+<td>配对差值</td>
+<td>−1 到 1</td>
+<td>质量变化</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>CI</td>
+<td>对前缀做 bootstrap</td>
+<td>百分位法</td>
+<td>同差值</td>
+<td>不确定性</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>Holm p</td>
+<td>Wilcoxon 符号秩检验，在同一结局内 Holm 校正 6 个条件</td>
+<td>不跨结局校正</td>
+<td>0–1</td>
+<td>校正后显著性</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p>只测首 token 的两个条件：<code>error_name</code> −.225（CI −.356, −.104，Holm .0005），<code>timeout</code> −.193（CI −.331, −.069，Holm .031）。来源：<code>B_first_token_effects.csv</code>。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>解离对</th>
+<th>结局</th>
+<th style="text-align:right">ΔH10</th>
+<th style="text-align:right">Δ结局</th>
+<th>95% CI</th>
+<th style="text-align:right">p（未校正）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>perturbed</code> − <code>text_only</code></td>
+<td>成功率</td>
+<td style="text-align:right">−.063</td>
+<td style="text-align:right">−.300</td>
+<td>−.433, −.167</td>
+<td style="text-align:right">.005</td>
+</tr>
+<tr>
+<td><code>perturbed</code> − <code>text_only</code></td>
+<td>有效率</td>
+<td style="text-align:right">−.063</td>
+<td style="text-align:right">−.233</td>
+<td>−.356, −.111</td>
+<td style="text-align:right">.006</td>
+</tr>
+<tr>
+<td><code>irrelevant</code> − <code>verbose</code></td>
+<td>成功率</td>
+<td style="text-align:right">−.076</td>
+<td style="text-align:right">−.211</td>
+<td>−.378, −.067</td>
+<td style="text-align:right">.020</td>
+</tr>
+<tr>
+<td><code>normal</code> − <code>perturbed</code></td>
+<td>成功率</td>
+<td style="text-align:right">−.099</td>
+<td style="text-align:right">+.333</td>
+<td>.178, .489</td>
+<td style="text-align:right">.005</td>
+</tr>
+<tr>
+<td><code>normal</code> − <code>perturbed</code></td>
+<td>有效率</td>
+<td style="text-align:right">−.099</td>
+<td style="text-align:right">+.256</td>
+<td>.133, .378</td>
+<td style="text-align:right">.005</td>
+</tr>
+<tr>
+<td><code>error</code> − <code>perturbed</code></td>
+<td>成功率</td>
+<td style="text-align:right">−.100</td>
+<td style="text-align:right">+.244</td>
+<td>.111, .400</td>
+<td style="text-align:right">.017</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>解离对</td>
+<td>满足预注册判据的条件对</td>
+<td>abs(ΔH10)&lt;0.1 且结局差&gt;0.2 且 CI 不含 0</td>
+<td>类别</td>
+<td>熵相近但质量不同</td>
+<td><code>B_dissociation.csv</code></td>
+</tr>
+<tr>
+<td>ΔH10</td>
+<td>两条件 H10 之差</td>
+<td>配对差值；未干预 H10 本身</td>
+<td>nats</td>
+<td>熵的接近程度</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>Δ结局</td>
+<td>两条件结局之差</td>
+<td>配对差值</td>
+<td>−1 到 1</td>
+<td>质量差</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>95% CI</td>
+<td>前缀 bootstrap</td>
+<td>百分位法</td>
+<td>−1 到 1</td>
+<td>不确定性</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>p（未校正）</td>
+<td>Wilcoxon</td>
+<td>42 组比较未校正</td>
+<td>0–1</td>
+<td>单项强度</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>normal</code> − <code>perturbed</code> 和 <code>error</code> − <code>perturbed</code> 的 abs(ΔH10) 恰好压在 0.1 附近，不应作为主要证据；<code>perturbed</code> − <code>text_only</code> 和 <code>irrelevant</code> − <code>verbose</code> 更稳。</p>
+<p>事后分组（6 道 AIME、9 道 MATH）：成功率 <code>normal</code>→<code>perturbed</code> 在 AIME 上 .278→.028，MATH 上 .852→.463；<code>verbose</code> 分别为 .444 和 .796。3 个前缀在 <code>normal</code> 下成功率已是 0，无法再降。CI not computed。来源：<code>B_by_source.csv</code>，<code>B_prefix_condition.csv</code>。</p>
+<p>跨前缀相关（观察性）：<code>normal</code> 条件下 H10 与成功率 ρ=−.647（p=.009），其他条件 −.402 到 +.087，均未达 p&lt;.05。来源：<code>B_within_condition.csv</code>。</p>
+<p><img src="results/simpletir7b/fig_B_conditions.png" alt="B：各条件" /></p>
+<p><em>图 3：每点一个前缀。</em></p>
+<h3>3.4 实验 C：等预算分支策略（推理时，无训练）</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>策略</th>
+<th style="text-align:right">分支至少一条正确</th>
+<th style="text-align:right">分支正确率</th>
+<th style="text-align:right">分支有效率</th>
+<th style="text-align:right">分支 void</th>
+<th style="text-align:right">分支数</th>
+<th style="text-align:right">token</th>
+<th style="text-align:right">工具调用</th>
+<th style="text-align:right">首 token 不同的比例</th>
+<th>对 <code>random</code>（赢/输，p）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tool_boundary</code></td>
+<td style="text-align:right">.9</td>
+<td style="text-align:right">.572</td>
+<td style="text-align:right">.572</td>
+<td style="text-align:right">.122</td>
+<td style="text-align:right">4.4</td>
+<td style="text-align:right">2999.2</td>
+<td style="text-align:right">3.0</td>
+<td style="text-align:right">.289</td>
+<td>5/1，.219</td>
+</tr>
+<tr>
+<td><code>posttool_high</code></td>
+<td style="text-align:right">.7</td>
+<td style="text-align:right">.262</td>
+<td style="text-align:right">.279</td>
+<td style="text-align:right">.303</td>
+<td style="text-align:right">4.5</td>
+<td style="text-align:right">2964.4</td>
+<td style="text-align:right">4.4</td>
+<td style="text-align:right">.867</td>
+<td>2/0，.500</td>
+</tr>
+<tr>
+<td><code>high_entropy</code></td>
+<td style="text-align:right">.6</td>
+<td style="text-align:right">.260</td>
+<td style="text-align:right">.310</td>
+<td style="text-align:right">.270</td>
+<td style="text-align:right">4.4</td>
+<td style="text-align:right">2957.0</td>
+<td style="text-align:right">4.1</td>
+<td style="text-align:right">.936</td>
+<td>4/3，1.000</td>
+</tr>
+<tr>
+<td><code>low_entropy</code></td>
+<td style="text-align:right">.6</td>
+<td style="text-align:right">.283</td>
+<td style="text-align:right">.283</td>
+<td style="text-align:right">.183</td>
+<td style="text-align:right">2.5</td>
+<td style="text-align:right">2990.2</td>
+<td style="text-align:right">5.0</td>
+<td style="text-align:right">.000</td>
+<td>3/2，1.000</td>
+</tr>
+<tr>
+<td><code>random</code></td>
+<td style="text-align:right">.5</td>
+<td style="text-align:right">.300</td>
+<td style="text-align:right">.300</td>
+<td style="text-align:right">.342</td>
+<td style="text-align:right">2.8</td>
+<td style="text-align:right">2981.1</td>
+<td style="text-align:right">4.8</td>
+<td style="text-align:right">.108</td>
+<td>对照</td>
+</tr>
+</tbody>
+</table></div>
+<p>5 个策略的 <code>pass@budget</code>（含根轨迹）都是 .9；两个根都错的题只有 2 道，救援率都是 .5。CI not computed。</p>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>策略</td>
+<td>重采样位置的规则（见 <code>PREREG.md</code> §5）</td>
+<td>共用同样的两个根轨迹</td>
+<td>类别</td>
+<td>分支准则</td>
+<td><code>C_arm_summary.csv</code></td>
+</tr>
+<tr>
+<td>分支至少一条正确</td>
+<td>不含根轨迹，至少一条分支正确的题目比例</td>
+<td>题目级均值，n=10</td>
+<td>0–1</td>
+<td>分支的产出</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>分支正确率 / 有效率 / void</td>
+<td>分支的对应比例</td>
+<td>先题内后题间平均</td>
+<td>0–1</td>
+<td>分支质量</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>分支数 / token / 工具调用</td>
+<td>每题消耗</td>
+<td>均值</td>
+<td>条 / token / 次</td>
+<td>预算使用；工具调用并不相等</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>首 token 不同的比例</td>
+<td>重采样第一个 token 与原路径不同的比例</td>
+<td>比例</td>
+<td>0–1</td>
+<td>是否真的产生新路径</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>对 <code>random</code></td>
+<td>每题比较分支是否至少一条正确</td>
+<td>精确符号检验</td>
+<td>赢/输，p</td>
+<td>是否胜过随机</td>
+<td><code>C_vs_random.csv</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>分支位置（事后）：<code>tool_boundary</code> 平均第 1.909 轮、轮内位置 0，分支正确 .636；<code>posttool_high</code> 第 2.333 轮、中位位置 30，.333；<code>high_entropy</code> 第 2.295 轮、中位位置 124.5，.295；<code>random</code> 第 1.250 轮、中位 301，.357；<code>low_entropy</code> 第 0.800 轮、中位 325，.280。这里的分支正确率按所有分支直接平均，所以和上表（先题内后题间）不同。来源：<code>C_branch_position.csv</code>。</p>
+<p><img src="results/simpletir7b/fig_C_arms.png" alt="C：策略" /></p>
+<p><em>图 4：等预算下的分支平均正确率。</em></p>
+<h3>3.5 实验 D：void 审计与事后探针</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th style="text-align:right">answer</th>
+<th style="text-align:right">budget</th>
+<th style="text-align:right">turn_limit</th>
+<th style="text-align:right">void_eos</th>
+<th style="text-align:right">void_trunc</th>
+<th style="text-align:right">合计</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>calib</td>
+<td style="text-align:right">96</td>
+<td style="text-align:right">21</td>
+<td style="text-align:right">10</td>
+<td style="text-align:right">13</td>
+<td style="text-align:right">4</td>
+<td style="text-align:right">144</td>
+</tr>
+<tr>
+<td>A</td>
+<td style="text-align:right">157</td>
+<td style="text-align:right">28</td>
+<td style="text-align:right">32</td>
+<td style="text-align:right">53</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">270</td>
+</tr>
+<tr>
+<td>B</td>
+<td style="text-align:right">375</td>
+<td style="text-align:right">110</td>
+<td style="text-align:right">27</td>
+<td style="text-align:right">108</td>
+<td style="text-align:right">10</td>
+<td style="text-align:right">630</td>
+</tr>
+<tr>
+<td>C</td>
+<td style="text-align:right">77</td>
+<td style="text-align:right">41</td>
+<td style="text-align:right">26</td>
+<td style="text-align:right">42</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">186</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>阶段</td>
+<td>实验阶段</td>
+<td>分组</td>
+<td>类别</td>
+<td>数据来源</td>
+<td><code>D_terminations.csv</code></td>
+</tr>
+<tr>
+<td>answer</td>
+<td>以 boxed 答案结束</td>
+<td>计数</td>
+<td>条</td>
+<td>正常结束</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>budget</td>
+<td>碰到 token 预算</td>
+<td>计数</td>
+<td>条</td>
+<td>笔记本限制</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>turn_limit</td>
+<td>到轮次上限还没有结束</td>
+<td>计数</td>
+<td>条</td>
+<td>用尽轮次</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>void_eos</td>
+<td>void 且以 EOS 结束</td>
+<td>计数</td>
+<td>条</td>
+<td>void turn</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>void_trunc</td>
+<td>void 且被单轮长度截断</td>
+<td>计数</td>
+<td>条</td>
+<td>限制造成的 void</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>合计</td>
+<td>该阶段 rollout 数</td>
+<td>求和</td>
+<td>条</td>
+<td>样本量</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align:right">已调用次数</th>
+<th style="text-align:right">轮数</th>
+<th style="text-align:right"><code>code</code></th>
+<th style="text-align:right"><code>answer</code></th>
+<th style="text-align:right"><code>answer_with_code</code></th>
+<th style="text-align:right">budget_cut</th>
+<th style="text-align:right">giveup 字符串</th>
+<th style="text-align:right">其他 void</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">0</td>
+<td style="text-align:right">192</td>
+<td style="text-align:right">189</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">3</td>
+</tr>
+<tr>
+<td style="text-align:right">1</td>
+<td style="text-align:right">1006</td>
+<td style="text-align:right">734</td>
+<td style="text-align:right">73</td>
+<td style="text-align:right">183</td>
+<td style="text-align:right">6</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">10</td>
+</tr>
+<tr>
+<td style="text-align:right">2</td>
+<td style="text-align:right">825</td>
+<td style="text-align:right">512</td>
+<td style="text-align:right">110</td>
+<td style="text-align:right">134</td>
+<td style="text-align:right">59</td>
+<td style="text-align:right">3</td>
+<td style="text-align:right">7</td>
+</tr>
+<tr>
+<td style="text-align:right">3</td>
+<td style="text-align:right">590</td>
+<td style="text-align:right">335</td>
+<td style="text-align:right">89</td>
+<td style="text-align:right">50</td>
+<td style="text-align:right">104</td>
+<td style="text-align:right">3</td>
+<td style="text-align:right">9</td>
+</tr>
+<tr>
+<td style="text-align:right">4</td>
+<td style="text-align:right">378</td>
+<td style="text-align:right">90</td>
+<td style="text-align:right">47</td>
+<td style="text-align:right">19</td>
+<td style="text-align:right">27</td>
+<td style="text-align:right">193</td>
+<td style="text-align:right">2</td>
+</tr>
+</tbody>
+</table></div>
+<p>调用 4 次时，这个字符串占 193/378 = .511。</p>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>已调用次数</td>
+<td>这一轮开始前的工具调用数</td>
+<td>根据阶段和轮次计算</td>
+<td>0–4</td>
+<td>轮次位置</td>
+<td><code>D_turn_classes_by_calls.csv</code></td>
+</tr>
+<tr>
+<td>轮数</td>
+<td>这一类的轮次数</td>
+<td>计数</td>
+<td>轮</td>
+<td>样本量</td>
+<td>同上</td>
+</tr>
+<tr>
+<td><code>code</code> / <code>answer</code> / <code>answer_with_code</code></td>
+<td>这一轮的结束方式</td>
+<td>规则分类</td>
+<td>轮</td>
+<td>正常轮</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>budget_cut</td>
+<td>最后一轮且被预算截断</td>
+<td>规则分类</td>
+<td>轮</td>
+<td>不算 void</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>giveup 字符串</td>
+<td>文本恰好是 <code>Reach max function call limit.</code></td>
+<td>字符串完全匹配，事后定义</td>
+<td>轮</td>
+<td>固定反应</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>其他 void</td>
+<td>其他 void 轮</td>
+<td>规则分类</td>
+<td>轮</td>
+<td>真正多样的 void</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>同状态内 void − 非 void（n=75 个状态）</th>
+<th style="text-align:right">均值</th>
+<th>95% CI</th>
+<th style="text-align:right">p</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ΔH_first（合理性检查，应接近 0）</td>
+<td style="text-align:right">.001</td>
+<td>−.004, .006</td>
+<td style="text-align:right">.430</td>
+</tr>
+<tr>
+<td>ΔH10</td>
+<td style="text-align:right">−.047</td>
+<td>−.125, .020</td>
+<td style="text-align:right">.815</td>
+</tr>
+<tr>
+<td>ΔH50</td>
+<td style="text-align:right">−.052</td>
+<td>−.126, .012</td>
+<td style="text-align:right">.303</td>
+</tr>
+<tr>
+<td>Δsurprisal（前 10）</td>
+<td style="text-align:right">−.084</td>
+<td>−.188, .014</td>
+<td style="text-align:right">.245</td>
+</tr>
+<tr>
+<td>Δgn（前 10）</td>
+<td style="text-align:right">−.014</td>
+<td>−.049, .017</td>
+<td style="text-align:right">.686</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>指标</td>
+<td>同一状态下 void 与非 void 续写的差</td>
+<td>先在状态内平均再取差</td>
+<td>nats 或无量纲</td>
+<td>去除状态效应</td>
+<td><code>D_same_state_tests.csv</code></td>
+</tr>
+<tr>
+<td>均值</td>
+<td>差的均值</td>
+<td>状态间平均</td>
+<td>同指标</td>
+<td>差异大小</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>95% CI</td>
+<td>bootstrap</td>
+<td>百分位法</td>
+<td>同指标</td>
+<td>不确定性</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>p</td>
+<td>配对检验，未校正</td>
+<td>Wilcoxon</td>
+<td>0–1</td>
+<td>单项强度</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>gn</code> = sqrt(1 − 2p_a + Σp²)，只是 log p(a) 对 logit 的灵敏度代理量，<strong>不是训练梯度</strong>。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>轮次</th>
+<th style="text-align:right">轮数</th>
+<th style="text-align:right">题目</th>
+<th>H_first</th>
+<th>H10</th>
+<th>H50</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>第一轮</td>
+<td style="text-align:right">144</td>
+<td style="text-align:right">36</td>
+<td>.018 [.012, .025]</td>
+<td>.176 [.154, .198]</td>
+<td>.177 [.146, .207]</td>
+</tr>
+<tr>
+<td>工具后，调用 1–3 次</td>
+<td style="text-align:right">2283</td>
+<td style="text-align:right">36</td>
+<td>.329 [.250, .409]</td>
+<td>.685 [.559, .818]</td>
+<td>.685 [.541, .830]</td>
+</tr>
+<tr>
+<td>工具后，调用 4 次</td>
+<td style="text-align:right">358</td>
+<td style="text-align:right">16</td>
+<td>.789 [.575, .991]</td>
+<td>.624 [.402, .918]</td>
+<td>.600 [.360, .925]</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>轮次</td>
+<td>按已调用次数分组</td>
+<td>只含真正从轮首开始的轮</td>
+<td>类别</td>
+<td>复现 ARPO 的观察</td>
+<td><code>D_arpo_entropy_rise.csv</code></td>
+</tr>
+<tr>
+<td>轮数 / 题目</td>
+<td>样本量</td>
+<td>计数</td>
+<td>整数</td>
+<td>样本量</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>H_first / H10 / H50</td>
+<td>熵的均值 [95% CI]</td>
+<td>先题内后题间平均，题目 bootstrap</td>
+<td>nats</td>
+<td>工具后熵的上升</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p>**事后探针：**工具结果后第一个 token 为 <code>Reach</code> 的概率（精确），每格 25 个状态。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align:right">已调用</th>
+<th style="text-align:right">题目</th>
+<th>不加后缀</th>
+<th>加 <code>\n</code></th>
+<th>加 <code>\n</code> + 结果置空</th>
+<th style="text-align:right">加 <code>\n</code> 的中位数</th>
+<th style="text-align:right">加 <code>\n</code> 时 P&gt;.5 的比例</th>
+<th>加 <code>\n</code> − 不加（95% CI）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">1</td>
+<td style="text-align:right">19</td>
+<td>.0000</td>
+<td>.0009 [.0003, .0015]</td>
+<td>.0001</td>
+<td style="text-align:right">.0001</td>
+<td style="text-align:right">.00</td>
+<td>.0008 [.0003, .0014]</td>
+</tr>
+<tr>
+<td style="text-align:right">2</td>
+<td style="text-align:right">15</td>
+<td>.0001</td>
+<td>.1687 [.0637, .3036]</td>
+<td>.0003</td>
+<td style="text-align:right">.0605</td>
+<td style="text-align:right">.16</td>
+<td>.1685 [.0663, .3051]</td>
+</tr>
+<tr>
+<td style="text-align:right">3</td>
+<td style="text-align:right">15</td>
+<td>.0002</td>
+<td>.3545 [.2072, .5305]</td>
+<td>.0008</td>
+<td style="text-align:right">.2312</td>
+<td style="text-align:right">.28</td>
+<td>.3543 [.2095, .5244]</td>
+</tr>
+<tr>
+<td style="text-align:right">4</td>
+<td style="text-align:right">9</td>
+<td>.0007</td>
+<td>.4042 [.2784, .5117]</td>
+<td>.0037</td>
+<td style="text-align:right">.1156</td>
+<td style="text-align:right">.40</td>
+<td>.4035 [.2833, .5071]</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>已调用</td>
+<td>上下文中的工具调用数</td>
+<td>从校准和 A 的真实轨迹中选状态，每题最多 4 个</td>
+<td>1–4</td>
+<td>调用历史</td>
+<td><code>probe_giveup.csv</code></td>
+</tr>
+<tr>
+<td>题目</td>
+<td>这一格的题目数</td>
+<td>计数</td>
+<td>整数</td>
+<td>聚类数</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>不加后缀 / 加 <code>\n</code> / 加 <code>\n</code> + 结果置空</td>
+<td>三种观察下的平均 P(<code>Reach</code>)</td>
+<td>精确概率，不采样；CI 为题目聚类 bootstrap（CI 未列出的列见 CSV）</td>
+<td>0–1</td>
+<td>触发条件</td>
+<td><code>probe_giveup_ci.csv</code></td>
+</tr>
+<tr>
+<td>中位数 / P&gt;.5 的比例</td>
+<td>加 <code>\n</code> 时的分布</td>
+<td>状态级统计</td>
+<td>0–1</td>
+<td>分布两极化</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>加 <code>\n</code> − 不加</td>
+<td>同状态配对差值</td>
+<td>题目聚类 bootstrap</td>
+<td>−1 到 1</td>
+<td>单 token 干预的效应</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p>注意：真实协议只在最后一轮加 <code>\n</code>，所以调用 1–3 次时加后缀是反事实。第 1、2 格和第 3、4 格的计算路径不同（9 行比对：abs(ΔP) 最大 .021，abs(ΔH) 最大 .102，<code>probe_path_check.csv</code>）。</p>
+<h3>3.6 保真度</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>对比</th>
+<th style="text-align:right">rollouts</th>
+<th style="text-align:right">token</th>
+<th style="text-align:right">Spearman</th>
+<th style="text-align:right">平均 abs(ΔH)</th>
+<th style="text-align:right">p99 abs(ΔH)</th>
+<th style="text-align:right">工具后首 token n</th>
+<th style="text-align:right">首 token Spearman</th>
+<th style="text-align:right">首 token 平均 abs(ΔH)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4-bit 对 8-bit（早期，500 token 内，主要是第一轮）</td>
+<td style="text-align:right">12</td>
+<td style="text-align:right">4674</td>
+<td style="text-align:right">.910</td>
+<td style="text-align:right">.045</td>
+<td style="text-align:right">.541</td>
+<td style="text-align:right">1</td>
+<td style="text-align:right">not computed</td>
+<td style="text-align:right">.767</td>
+</tr>
+<tr>
+<td>4-bit 对 8-bit（工具后，2000 token 内）</td>
+<td style="text-align:right">12</td>
+<td style="text-align:right">7418</td>
+<td style="text-align:right">.965</td>
+<td style="text-align:right">.073</td>
+<td style="text-align:right">.680</td>
+<td style="text-align:right">18</td>
+<td style="text-align:right">.643</td>
+<td style="text-align:right">.221</td>
+</tr>
+<tr>
+<td>4-bit 对 4-bit（路径噪声对照，事后）</td>
+<td style="text-align:right">12</td>
+<td style="text-align:right">7418</td>
+<td style="text-align:right">.975</td>
+<td style="text-align:right">.008</td>
+<td style="text-align:right">.076</td>
+<td style="text-align:right">18</td>
+<td style="text-align:right">.998</td>
+<td style="text-align:right">.009</td>
+</tr>
+</tbody>
+</table></div>
+<p>全部 token 的 Spearman 受大量接近 0 的熵值影响（自身对照也只有 .975），应结合 abs(ΔH) 看。</p>
+<p><strong>P(<code>Reach</code>) 的保真度未验证：</strong> 这 18 个位置的 P 都低于 .01，也都没有最后一轮后缀。没有和原始 fp16 权重比较（16GB 内存不够）。H10 的保真度 not computed。</p>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>对比</td>
+<td>记录的 4-bit 熵和参考权重重放的熵</td>
+<td>单次前向重放真实 rollout</td>
+<td>类别</td>
+<td>量化敏感性</td>
+<td><code>fidelity_*.json</code></td>
+</tr>
+<tr>
+<td>rollouts / token</td>
+<td>样本量</td>
+<td>计数</td>
+<td>整数</td>
+<td>样本量</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>Spearman</td>
+<td>逐位置等级相关</td>
+<td>工具后对比只含第 2 轮起的 token</td>
+<td>−1 到 1</td>
+<td>相对顺序的保持</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>平均 abs(ΔH) / p99 abs(ΔH)</td>
+<td>绝对差的均值和 99 分位</td>
+<td>逐位置</td>
+<td>nats</td>
+<td>数值偏差</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>工具后首 token 系列</td>
+<td>只看工具结果后第一个 token</td>
+<td>同上；n 小，CI not computed</td>
+<td>同上</td>
+<td><code>H_first</code> 的可靠性</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p>工具结果类型（超时可能因机器负载而偏高）：超时率 校准 .096（30/314）、A .073（27/372）、B .041（40/983）、C .103（22/213）。来源：<code>tool_kinds_by_stage.csv</code>。</p>
+<h2 id="4-典型案例">4. 典型案例</h2>
+<p>案例由 <code>analyze.py</code> 的规则选出（<code>case_studies.md</code>），不是人工挑选。</p>
+<p><strong>成功与失败，同一前缀（B，<code>math_counting_and_probability_25149</code>，从 1.00 到 0.00，下降最大）。</strong> 问题的答案是 63。</p>
+<ul>
+<li><code>normal</code>（<code>Code execution result: 63</code>，H_first .141）：<code>...is \(\boxed{63}\). This result has been verified through the code and is accurate.</code> 正确。</li>
+<li><code>perturbed</code>（<code>Code execution result: 39</code>，H_first .035）：<code>...is \(\boxed{39}\). This result has been verified through the code and is accurate.</code> 错误。首 token 熵很低，模型照样采信了错误数字。</li>
+<li><code>error</code>（H_first .002）：<code>It seems that there was an error due to incorrect range values...</code>，重写循环，正确。</li>
+<li><code>verbose</code>（H_first 1.304）：<code>The number of integer coordinate points ... is \(\boxed{63}\).</code> 首 token 熵最高，仍然正确。</li>
+</ul>
+<p><strong>高熵且有效（A，<code>aime24_10:r1:t3</code>，H10 1.71，成功率 .83，有效率 .83）。</strong> 一条续写给出 <code>\boxed{371}</code>，正确；另一条停在反复核对，到轮次上限（<code>Interestingly, it yielded ...</code>）。</p>
+<p><strong>高熵且退化（A，<code>aime24_10:r3:t3</code>，H10 2.04，成功率 0，有效率 0）。</strong> 开头分别是 <code>It appears that my code might be flawed...</code> 和 <code>It appears our logic still isn't correct...</code> 等。6 条续写都先写了代码并得到结果；其中 5 条下一轮（已调用 4 次）输出 <code>Reach max function call limit.</code>，算作 void，另一条到轮次上限。有 2 条的工具输出已含本题正确答案（如 <code>Sum m + n: 371</code>），但因为这个字符串没有给出答案。所以这个高熵状态的低质量，至少部分来自最后一轮的固定输出（对这一个状态的观察）。</p>
+<p><strong>固定 void（校准，<code>calib:aime24_01:0</code>，第 5 轮，已调用 4 次）。</strong> 上一条工具结果是 <code>None</code>。下一轮第一个 token 是 <code>Reach</code>，其概率约 .987（logp −0.013），H_first .073，随后是整个字符串和 EOS。这个例子是低熵的 void，看不出是不确定之后崩掉。</p>
+<h2 id="5-key-findings-minimal-interpretation">5. Key Findings / Minimal Interpretation</h2>
+<p><em>标注：Interpretation，不是一级结论。</em></p>
+<p>回答核心问题：在这个模型和规模上，<strong>工具反馈后的高熵本身既不能说明是有价值的探索，也不能说明是不稳定的续写。</strong> 内容（数字是否正确）能在 H10 变化未检出时降低质量；形式（日志、没有工具标记）能提高 H10 而质量未检出变化。A 中高 H10 状态的质量更低，但未通过校正，且可能由路径依赖造成。</p>
+<p>D 还提示，用 void 作“不稳定”的代理要谨慎：在这个模型上，void 主要是一个对协议格式敏感的固定输出。</p>
+<p>与已有方法的关系（Interpretation）：ReTool 把工具输出 token 排除在策略损失之外，但工具输出仍然留在上下文里，B 测到的正是这部分内容对后续 token 的影响；SimpleTIR 过滤 void 轨迹，而这里的 void 大多是固定字符串；ARPO 把工具后熵上升当作分支信号，这里复现了熵上升（§3.5），但等预算分支未显示按熵选位的优势（§3.4，n=10）。</p>
+<h2 id="6-局限">6. 局限</h2>
+<ul>
+<li><strong>一个模型，4-bit。</strong> 工具后首 token 的熵对量化敏感（§3.6），<code>H_first</code> 的结果只能视为 4-bit 模型的性质。H10 的保真度 not computed。fp16 未比较。ARPO 模型复现未做。</li>
+<li><strong>规模小。</strong> B 15 个前缀，A 30 个状态，C 10 题。没有检出不等于没有效应：<code>irrelevant</code> 和 <code>empty</code> 的成功率点估计分别下降 .178 和 .167。</li>
+<li><strong>多重比较。</strong> Holm 只在同一结局内做。解离的 42 组比较未校正。0.1 的阈值是预注册的，但两组结果压线。</li>
+<li><strong>H10 依赖路径。</strong> B 干预的是反馈，不是熵本身，因此不能说“熵导致”任何结果；只有反馈到结局的效应是因果估计。</li>
+<li><strong>长度。</strong> <code>verbose</code> 的长度不同（133.7 对 30.7 token）。<code>text_only</code> 也改变了工具标记之外的少量文字。B 的 budget 率 .111–.244，长度上限比官方短，可能压低成功率。</li>
+<li><strong>探针只看第一个 token，</strong> 且只有两种操作。第 4 格只来自 9 道题。P(<code>Reach</code>) 的保真度未验证。</li>
+<li><strong>环境。</strong> T=1、无 top-p，不等于官方评测。超时率可能受负载影响；运行跨 3 段，中间有暂停和中断（§8）。</li>
+<li><strong>题目选择。</strong> 从校准中按结果多样性选题，可能有回归均值。B 的 3 个前缀 <code>normal</code> 成功率已是 0。</li>
+<li><strong>未训练。</strong> 所有结论只针对推理时的已训练权重，不涉及 RL 更新。</li>
+</ul>
+<h2 id="7-新颖性风险">7. 新颖性风险</h2>
+<p>详见 <code>notes/smoke_novelty.md</code>。结论只针对已检索范围，不是全文献排查。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>实验</th>
+<th>风险</th>
+<th>最接近的工作</th>
+<th>调整</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>中</td>
+<td>APPO 2606.12384（熵与分支结果关系弱）；Tool-Light 2509.23285（工具后熵波动，只读摘要）</td>
+<td>不主打“熵不可靠”，只作为 B 的观察性背景</td>
+</tr>
+<tr>
+<td>B</td>
+<td>中</td>
+<td><strong>2608.06270 已在视觉工具上做固定前缀替换观察（全文无 entropy，非代码 TIR）</strong>；ProCredit 2609.27532 App. A（观察性）</td>
+<td>主张收窄为：代码 TIR 上同时测量工具后熵和续写质量</td>
+</tr>
+<tr>
+<td>C</td>
+<td>高</td>
+<td>APPO 的重采样比较</td>
+<td>只作复现和控制，不作主要贡献</td>
+</tr>
+<tr>
+<td>D + 探针</td>
+<td>低到中</td>
+<td>未发现把 void 与协议后缀关联的工作（两次检索）</td>
+<td>先核实训练代码和其他 checkpoint，再判断是否值得写</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>实验</td>
+<td>四组实验和探针</td>
+<td>人工分组</td>
+<td>类别</td>
+<td>范围</td>
+<td>本报告</td>
+</tr>
+<tr>
+<td>风险</td>
+<td>已被做过的风险</td>
+<td><strong>人工判断，非测量</strong></td>
+<td>低/中/高</td>
+<td>决定投入</td>
+<td><code>notes/smoke_novelty.md</code></td>
+</tr>
+<tr>
+<td>最接近的工作</td>
+<td>已读到的相近论文</td>
+<td>人工核对原文，读取程度见笔记</td>
+<td>文本</td>
+<td>重合范围</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>调整</td>
+<td>研究问题的修改</td>
+<td>人工判断</td>
+<td>文本</td>
+<td>后续方向</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p>与 ProCredit 的比较：这里 <code>error</code> 把首 token 熵压低（−.206）、H10 无变化、H50 上升（+.268，Holm .027）；ProCredit 报告 4B 上错误轮前 20 token 上升 +0.235±0.034。模型、任务和设计都不同（观察性对干预），不算矛盾，也不能合并。</p>
+<h2 id="8-deviations">8. Deviations</h2>
+<p>相对 <code>PREREG.md</code>。§7 的三项（长度上限、规模、8-bit 参考）已在预注册文件中记录。</p>
+<ol>
+<li><strong>placebo 相关无法计算。</strong> 我设计时每题只有一个 placebo 状态，组内相关不存在，<code>A_posttool_vs_placebo.csv</code> 的 placebo 列为空。改用事后的固定效应交互。</li>
+<li><strong>pass@8 改成 pass@6</strong>，因为每状态只有 6 条续写。</li>
+<li><strong><code>answer_div</code> 几乎都是 1，</strong> 统计退化（p=1.0），不应解读。</li>
+<li><strong>事后分析：</strong> void 拆分（giveup / 其他）、固定效应斜率、按来源分组、分支位置、give-up 探针。都是看到数据后加的，已标注。</li>
+<li><strong>保真度：</strong> 第一次只有 1 个工具后首 token，事后补了工具后回放和 4-bit 自身对照。参考是 8-bit，不是 fp16。</li>
+<li><strong>分析修正：</strong> (a) 被预算截断的最后一轮不再算 void；(b) <code>first turn</code> 混入了 48 条 A placebo 第 0 轮和 C 轮中分支，修正后第一轮 H10 从 .171 变为 .176，工具后从 .690 变为 .685，图 1 重新生成；(c) 案例脚本在成功率为 0 时重复取同一条，已修。对话中此前给出的中间数字被本报告取代。</li>
+<li><strong>探针代码修改：</strong> 第 3 格内存抖动，改为共享前缀。第 1、2 格是旧路径，第 3、4 格是新路径。</li>
+<li><strong>运行过程：</strong> 三段运行。我把探针和 B 并发，10:05–11:16 B 没有新增 rollout。Claude Code 会话结束时任务中断一次（B=325）；两次低电量暂停（12:04–14:09；15:25 后由用户停止，18:37 恢复，B=390）。中断时未写入的 rollout 重跑。B、C 的 deadline 从 15:30 / 17:00 改为 22:00 / 22:45，实际都未被截断（<code>stop=None</code>）。暂停和机器负载可能影响工具超时率。</li>
+<li><strong>ARPO 复现（预注册为时间允许时才做）未做。</strong></li>
+</ol>
+<h2 id="9-建议带到-11-月-6-日讨论的内容">9. 建议带到 11 月 6 日讨论的内容</h2>
+<p><strong>最值得讨论（已有观察结果）：</strong></p>
+<ol>
+<li><strong>B 的解离：</strong> 形式能提熵而不伤质量，内容能伤质量而熵变化未检出。这对 ARPO、AEPO、TAO-RL 这类把工具后高熵当探索信号的做法提出了一个具体问题。</li>
+<li><strong>void 的固定字符串和单 token 触发：</strong> 这可能影响怎么理解 void turn 的统计和过滤。请教授判断这是一个模型的特殊现象，还是值得查的普遍问题。</li>
+</ol>
+<p><strong>需要教授判断的决定：</strong></p>
+<ul>
+<li>项目是否从综述扩展成研究论文（<code>plan.md</code> §1 的最大目标目前仍是综述，§11 仍写着不做 GPU 实验）。</li>
+<li>下一步是否需要 GPU：fp16 全精度，50 个以上前缀，加上 ARPO 模型。</li>
+<li>贡献应放在哪里：“形式/内容分解”是否足以构成研究问题，还是要进一步到训练（例如只改反馈的形式，看熵奖励是否被格式吸引）。</li>
+</ul>
+<p><strong>还不应该说的：</strong></p>
+<ul>
+<li>不能说熵引导没有用（C 只有 10 题）。</li>
+<li>不能说和 ProCredit 矛盾。</li>
+<li>不能说 void 与梯度爆炸有无关系。</li>
+<li>不能把 <code>Reach</code> 字符串的来源说成已知。</li>
+</ul>
+<p><strong>Follow-up Analysis Needed：</strong> 查 SimpleTIR 的训练环境里是否出现这个字符串；在其他 checkpoint 上跑同样探针；用 fp16 重测 B 的 H_first 和 H10；每个条件增加样本，把 <code>irrelevant</code>、<code>empty</code> 的成功率效应判定清楚；C 控制工具调用预算并增加题目。</p>
+<h2 id="10-复现">10. 复现</h2>
+<pre><code class="language-bash">cd experiments/smoke
+.venv/bin/python run_exps.py --model models/simpletir7b-4bit --fmt simpletir --tag simpletir7b --stage B --bs 6 --n_sel 15 --n_B 15 --C_B 6   # 其他阶段同理，按 jid 续跑
+.venv/bin/python analyze.py simpletir7b
+.venv/bin/python posthoc_report.py simpletir7b
+PROBE_CELLS=3,4 PROBE_CHECK=3 .venv/bin/python probe_giveup.py simpletir7b models/simpletir7b-4bit 25
+FID_POST=1 FID_N=12 FID_MAXTOK=2000 .venv/bin/python fidelity.py simpletir7b models/simpletir7b-8bit 8bit_post
+</code></pre>
+<p>依次运行：<code>overnight.sh</code>、<code>daytime.sh</code>、<code>evening.sh</code>、<code>final.sh</code>。</p>
+<p><strong>文献：</strong> <a href="https://arxiv.org/abs/2504.11536">ReTool</a>，<a href="https://arxiv.org/abs/2507.19849">ARPO</a>，<a href="https://arxiv.org/abs/2509.02479">SimpleTIR</a>，<a href="https://arxiv.org/abs/2510.14545">AEPO</a>，<a href="https://arxiv.org/abs/2606.12384">APPO</a>，<a href="https://arxiv.org/abs/2606.03762">TAO-RL</a>，<a href="https://arxiv.org/abs/2609.27532">ProCredit</a>，<a href="https://arxiv.org/abs/2604.08281">ATTC</a>，<a href="https://arxiv.org/abs/2608.06270">Illusion of Visual Tool-Use</a>，<a href="https://arxiv.org/abs/2509.23285">Tool-Light</a>，<a href="https://arxiv.org/abs/2607.14145">ToolAnchor</a>，<a href="https://arxiv.org/abs/2511.10899">Tool-Induced Myopia</a>（只读摘要，未核实）。</p>
+
+</div>
+</body>
+</html>

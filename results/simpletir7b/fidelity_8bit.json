@@ -1,0 +1,15 @@
+{
+ "reference": "8bit",
+ "n_rollouts": 12,
+ "n_tokens": 4674,
+ "spearman": 0.9097702183105569,
+ "pearson": 0.9201720427822793,
+ "mean_abs_dH": 0.04506810838348977,
+ "median_abs_dH": 2.1323990949895233e-05,
+ "p99_abs_dH": 0.5407706304049481,
+ "mean_H_4bit": 0.13398147197261448,
+ "mean_H_ref": 0.13109444478841212,
+ "n_posttool_first": 1,
+ "spearman_posttool_first": null,
+ "mean_abs_dH_posttool_first": 0.7666533308029175
+}

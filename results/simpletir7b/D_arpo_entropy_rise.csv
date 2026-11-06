@@ -1,0 +1,10 @@
+segment,metric,n_turns,n_problems,mean,ci_lo,ci_hi
+first turn,H_first,144,36,0.0176,0.0119,0.0246
+first turn,H10,144,36,0.1759,0.1539,0.198
+first turn,H50,144,36,0.1767,0.1461,0.2073
+"after tool, 1 to 3 calls",H_first,2283,36,0.3293,0.2497,0.4086
+"after tool, 1 to 3 calls",H10,2283,36,0.6849,0.5592,0.8179
+"after tool, 1 to 3 calls",H50,2283,36,0.6851,0.5412,0.8295
+"after tool, 4 calls",H_first,358,16,0.7887,0.5745,0.9914
+"after tool, 4 calls",H10,358,16,0.6237,0.4023,0.9177
+"after tool, 4 calls",H50,358,16,0.6,0.3604,0.9253

@@ -1,0 +1,1937 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Full report (English)</title>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<div class="doc">
+<p class="back"><a href="./">← 返回页面</a> <a href="report_zh.html">中文</a></p>
+<h1>High entropy after tool feedback: report on four smoke tests</h1>
+<blockquote>
+<p>2026-11-06. All numbers come from <code>experiments/smoke/results/simpletir7b/</code>; raw trajectories are in <code>experiments/smoke/runs/simpletir7b/</code> (not in git). Pre-registration: <code>PREREG.md</code>, commit <code>ca8d6c8</code>, committed before any real rollout.</p>
+<p>This is a smoke test on a laptop: one model, 4-bit quantisation, at most 36 problems. It can find large effects and design errors. It cannot establish small effects. &quot;Not detected&quot; means only that nothing was detected at this size.</p>
+</blockquote>
+<h2 id="1-conclusions">1. Conclusions</h2>
+<h3>Observed results</h3>
+<ol>
+<li><strong>Entropy and continuation quality can move separately (B, intervention, 15 prefixes).</strong> Changing only the form raises H10 with no detected change in quality: <code>verbose</code> H10 +0.250 (Holm .027), success +0.033 (Holm .747); <code>text_only</code> H10 +0.162 (Holm .002), success −0.033 (Holm .747). Changing only the digits lowers success, while the rise in H10 is not detected: <code>perturbed</code> success −0.333 (Holm .030), valid −0.256 (Holm .031), H10 +0.099 (Holm .096).</li>
+<li><strong>The pre-registered dissociation criterion is met.</strong> For example, <code>perturbed</code> versus <code>text_only</code>: H10 differs by only 0.063 while success differs by 0.300 (95% CI −0.433 to −0.167). Six of 42 comparisons meet the criterion (no multiple-comparison correction).</li>
+<li><strong>High-H10 states have lower mean quality, but this does not pass the pre-registered correction (A).</strong> Within-problem Spearman of H10 with success is ρ=−0.446 (permutation p=.045, BH .262). No pre-registered primary correlation passes BH. H10 depends on the sampled path, so it cannot be read causally; H_first, which does not, shows no such relation with success (ρ=+0.166, p=.562). Nor is there evidence that the relation is specific to tools: the interaction with placebo has a CI that includes 0.</li>
+<li><strong>Void turns are almost one fixed string (D).</strong> Of 216 <code>void_eos</code> rollouts, 199 (92.1%) have a last turn that is exactly <code>Reach max function call limit.</code>, and 193 of those occur after 4 tool calls. Among continuations of the same state, no difference in H10 between void and non-void is detected (difference −0.047, CI −0.125 to 0.020, n=75 states).</li>
+<li><strong>This string is triggered jointly by the protocol's final-turn <code>\n</code> and a non-empty tool result (post-hoc probe, first token only).</strong> After 4 calls, P(<code>Reach</code>) is 0.0007 without the suffix, 0.4042 with it (CI 0.278–0.512), and 0.0037 with the suffix and a blanked tool result.</li>
+<li><strong>Choosing branch points by entropy at inference time shows no advantage (C, 10 problems).</strong> No arm significantly beats <code>random</code>. <code>tool_boundary</code> has the highest point estimate (branch accuracy .572 versus <code>random</code> .300; sign test 5 wins, 1 loss, p=.219). <code>high_entropy</code> .260, <code>posttool_high</code> .262.</li>
+<li><strong><code>H_first</code> is sensitive to quantisation.</strong> 4-bit versus 8-bit at the first token after a tool result: Spearman only .643 (n=18), mean abs(ΔH) .221; a replay control with the same 4-bit model gives .998 and .009. Across all tokens Spearman is .965, above the pre-registered 0.9; but the self-control is only .975, because this measure is affected by the many entropy values near 0, so abs(ΔH) should be read alongside it.</li>
+</ol>
+<h3>Hypotheses (not verified)</h3>
+<ul>
+<li>High entropy mixes at least two sources: uncertainty from the form of the feedback, and uncertainty from content that conflicts with the context. The former does not hurt quality here.</li>
+<li>Methods that reward or branch on entropy may reward format changes unrelated to content. Only inference-time continuation was measured here; there was no training.</li>
+<li>The model saw this final-turn format and limit string during training and learned the reaction. The source of the string is currently unknown: it was not found in the public SimpleTIR code or the papers checked.</li>
+</ul>
+<h3>Explanations not yet verified</h3>
+<ul>
+<li>No training gradient was computed. <code>gn</code> is only a proxy for the sensitivity of log p(a) to logits, and its maximum is about 1.27–1.39 across all trajectory classes. <strong>These results neither support nor rule out gradient explosion.</strong></li>
+<li>Why <code>tool_boundary</code> has the highest point estimate is unknown. Its branch positions differ from the other arms (§3.4), and n=10.</li>
+<li>The mechanism by which <code>perturbed</code> lowers quality is not established. The case study shows the model adopting a wrong number directly (§4), but the difference in <code>adopt</code> is not detected (−0.278, Holm .151).</li>
+</ul>
+<h2 id="2-experiment-configuration">2. Experiment configuration</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Value</th>
+<th>Basis</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model</td>
+<td><code>ZhenghaiXue/Qwen2.5-7B-SimpleTIR</code>, commit <code>fbe635a</code>, 4-bit MLX</td>
+<td>Public weights and protocol; only an M1 Pro 16GB was available</td>
+</tr>
+<tr>
+<td>Sampling</td>
+<td>T=1, no top-p / top-k, independent PRNG per sequence</td>
+<td>The RL rollout distribution; SimpleTIR validation uses top_p=0.7, so success rates are not directly comparable</td>
+</tr>
+<tr>
+<td>Entropy</td>
+<td>Full-vocabulary Shannon entropy (nats), recorded per token</td>
+<td>Same definition as ARPO, APPO, ProCredit</td>
+</tr>
+<tr>
+<td>Protocol</td>
+<td>Replicates SimpleTIR <code>agent_utils.py</code>: stop after the first complete code block; <code>\nCode execution result: {stdout}\n</code>; last stderr line on error; 512-char and 256-token limits; 5 s timeout; max_turns 5; <code>\n</code> appended at the last turn</td>
+<td><code>formats.py</code></td>
+</tr>
+<tr>
+<td>Length limits</td>
+<td>2048 tokens per turn; 4096 per root; 2500 per continuation</td>
+<td>Official values are 8000 (train) / 12000 (eval); not affordable on a laptop, see <code>PREREG.md</code> §7</td>
+</tr>
+<tr>
+<td>Problems</td>
+<td>Seed 4212: 20 AIME 2024 + 40 MATH level 4–5 with integer answers; 36 problems actually calibrated</td>
+<td><code>data/problems_all.json</code>, <code>run_exps.py</code></td>
+</tr>
+<tr>
+<td>Sandbox</td>
+<td><code>sandbox-exec</code>: no network, no writes outside a temp dir, no reads of <code>$HOME</code>, no subprocesses, 2 GB memory</td>
+<td><code>sandbox.py</code></td>
+</tr>
+<tr>
+<td>Size</td>
+<td>Calibration 36×4 = 144; A 15 problems × (2 post-tool + 1 placebo) × 6 = 270; B 15 prefixes × 7 conditions × 6 = 630, plus 135 first-token records; C 10 problems × 5 arms, 186 branches</td>
+<td><code>runs/simpletir7b/*.jsonl</code>, <code>config_*.json</code></td>
+</tr>
+<tr>
+<td>Statistics</td>
+<td>A: within-problem Spearman, permutation test, problem-cluster bootstrap, BH; B: paired Wilcoxon, Holm within each outcome (6 conditions); C: exact sign test</td>
+<td><code>analyze.py</code></td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Item</td>
+<td>Name of the setting</td>
+<td>Listed by hand</td>
+<td>Text</td>
+<td>Dimension of the setup</td>
+<td><code>PREREG.md</code> §1</td>
+</tr>
+<tr>
+<td>Value</td>
+<td>Value used in the actual runs</td>
+<td>Read from configs and code</td>
+<td>Text / number</td>
+<td>Needed to reproduce</td>
+<td><code>config_*.json</code>, <code>run_exps.py</code></td>
+</tr>
+<tr>
+<td>Basis</td>
+<td>Reason for the choice or code location</td>
+<td>Written by hand, not measured</td>
+<td>Text</td>
+<td>Provenance</td>
+<td><code>PREREG.md</code>, <code>formats.py</code></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="3-results">3. Results</h2>
+<h3>3.1 Calibration</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Source</th>
+<th style="text-align:right">Rollouts</th>
+<th style="text-align:right">Problems</th>
+<th style="text-align:right">Success</th>
+<th style="text-align:right">Valid</th>
+<th style="text-align:right">void_eos</th>
+<th style="text-align:right">budget</th>
+<th style="text-align:right">Mean calls</th>
+<th style="text-align:right">Mean tokens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AIME 2024</td>
+<td style="text-align:right">48</td>
+<td style="text-align:right">12</td>
+<td style="text-align:right">.208</td>
+<td style="text-align:right">.271</td>
+<td style="text-align:right">.167</td>
+<td style="text-align:right">.333</td>
+<td style="text-align:right">3.146</td>
+<td style="text-align:right">3106.6</td>
+</tr>
+<tr>
+<td>MATH</td>
+<td style="text-align:right">96</td>
+<td style="text-align:right">24</td>
+<td style="text-align:right">.865</td>
+<td style="text-align:right">.865</td>
+<td style="text-align:right">.052</td>
+<td style="text-align:right">.052</td>
+<td style="text-align:right">1.698</td>
+<td style="text-align:right">1400.4</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Rollouts / Problems</td>
+<td>Number of root rollouts and problems</td>
+<td>Count</td>
+<td>Integer</td>
+<td>Sample size</td>
+<td><code>calib_summary.csv</code></td>
+</tr>
+<tr>
+<td>Success</td>
+<td>Share with a correct boxed answer</td>
+<td>Mean of <code>grade_rollout</code>; CI not computed</td>
+<td>0–1</td>
+<td>Final correctness</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Valid</td>
+<td>Ends in a boxed answer, with no void, truncation or turn limit</td>
+<td>Share; CI not computed</td>
+<td>0–1</td>
+<td>Normal ending</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>void_eos</td>
+<td>Last turn has neither code block nor boxed answer, and ends in EOS</td>
+<td>Share; CI not computed</td>
+<td>0–1</td>
+<td>Void turn</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>budget</td>
+<td>Cut off by the length budget</td>
+<td>Share; CI not computed</td>
+<td>0–1</td>
+<td>Effect of laptop limits</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Mean calls / Mean tokens</td>
+<td>Tool calls and generated tokens per rollout</td>
+<td>Mean; CI not computed</td>
+<td>Count / tokens</td>
+<td>Rollout length</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p><img src="results/simpletir7b/fig_entropy_profile_all.png" alt="Entropy by position" /></p>
+<p><em>Figure 1: mean entropy by position within a turn. Grey is the true first turn (calibration roots); blue is turns following a tool result. Continuations that started mid-turn are excluded.</em></p>
+<h3>3.2 Experiment A: entropy and continuation quality</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>State kind</th>
+<th style="text-align:right">States</th>
+<th style="text-align:right">H_first</th>
+<th style="text-align:right">H10</th>
+<th style="text-align:right">Success</th>
+<th style="text-align:right">Valid</th>
+<th style="text-align:right">Void</th>
+<th style="text-align:right">pass@6</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Post-tool</td>
+<td style="text-align:right">30</td>
+<td style="text-align:right">.515</td>
+<td style="text-align:right">.728</td>
+<td style="text-align:right">.567</td>
+<td style="text-align:right">.594</td>
+<td style="text-align:right">.211</td>
+<td style="text-align:right">.800</td>
+</tr>
+<tr>
+<td>Placebo</td>
+<td style="text-align:right">15</td>
+<td style="text-align:right">.323</td>
+<td style="text-align:right">.324</td>
+<td style="text-align:right">.533</td>
+<td style="text-align:right">.556</td>
+<td style="text-align:right">.167</td>
+<td style="text-align:right">.933</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>State kind</td>
+<td>After a tool result, or a random position in ordinary reasoning text</td>
+<td>Chosen by the pre-registered rule</td>
+<td>Category</td>
+<td>Post-tool versus control</td>
+<td><code>A_state_means.csv</code></td>
+</tr>
+<tr>
+<td>States</td>
+<td>Number of states</td>
+<td>Count, 6 continuations per state</td>
+<td>Integer</td>
+<td>Sample size</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>H_first</td>
+<td>Entropy of the first token after the state</td>
+<td>Exact, independent of sampling</td>
+<td>Nats, ≥0</td>
+<td>Unaffected by the continuation path</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>H10</td>
+<td>Mean entropy of the first 10 generated tokens</td>
+<td>Averaged over continuations, then states; path-dependent</td>
+<td>Nats, ≥0</td>
+<td>Primary entropy measure</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Success / Valid / Void</td>
+<td>Corresponding shares among continuations</td>
+<td>Within-state share, then mean; CI not computed</td>
+<td>0–1</td>
+<td>Continuation quality</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>pass@6</td>
+<td>At least one of 6 continuations correct</td>
+<td>Mean of a within-state indicator</td>
+<td>0–1</td>
+<td>Coverage from repeated sampling</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>H10 tercile</th>
+<th style="text-align:right">H10</th>
+<th style="text-align:right">H_first</th>
+<th style="text-align:right">Success</th>
+<th style="text-align:right">Valid</th>
+<th style="text-align:right">Void</th>
+<th style="text-align:right">Of which give-up</th>
+<th style="text-align:right">pass@6</th>
+<th style="text-align:right">Strategy diversity</th>
+<th style="text-align:right">degenerate</th>
+<th style="text-align:right">lexical</th>
+<th style="text-align:right">productive</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Low</td>
+<td style="text-align:right">.227</td>
+<td style="text-align:right">.224</td>
+<td style="text-align:right">.667</td>
+<td style="text-align:right">.683</td>
+<td style="text-align:right">.183</td>
+<td style="text-align:right">.133</td>
+<td style="text-align:right">.8</td>
+<td style="text-align:right">1.285</td>
+<td style="text-align:right">4</td>
+<td style="text-align:right">5</td>
+<td style="text-align:right">1</td>
+</tr>
+<tr>
+<td>Mid</td>
+<td style="text-align:right">.566</td>
+<td style="text-align:right">.305</td>
+<td style="text-align:right">.633</td>
+<td style="text-align:right">.683</td>
+<td style="text-align:right">.133</td>
+<td style="text-align:right">.133</td>
+<td style="text-align:right">.9</td>
+<td style="text-align:right">2.641</td>
+<td style="text-align:right">5</td>
+<td style="text-align:right">1</td>
+<td style="text-align:right">4</td>
+</tr>
+<tr>
+<td>High</td>
+<td style="text-align:right">1.392</td>
+<td style="text-align:right">1.017</td>
+<td style="text-align:right">.400</td>
+<td style="text-align:right">.417</td>
+<td style="text-align:right">.317</td>
+<td style="text-align:right">.300</td>
+<td style="text-align:right">.7</td>
+<td style="text-align:right">2.015</td>
+<td style="text-align:right">7</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">3</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>H10 tercile</td>
+<td>Post-tool states split into three groups by H10</td>
+<td>Whole-sample terciles, 10 states each</td>
+<td>Category</td>
+<td>Descriptive grouping</td>
+<td><code>A_by_tercile.csv</code></td>
+</tr>
+<tr>
+<td>H10, H_first, Success, Valid, Void, pass@6</td>
+<td>As in the table above</td>
+<td>Group mean; CI not computed</td>
+<td>As above</td>
+<td>As above</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Of which give-up</td>
+<td>Share ending in <code>Reach max function call limit.</code></td>
+<td>Post-hoc feature</td>
+<td>0–1</td>
+<td>Main source of void</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Strategy diversity</td>
+<td>Effective number of first-code-block signatures</td>
+<td>exp(Shannon entropy of the signature distribution); <strong>a heuristic proxy, not a judgement of strategy</strong></td>
+<td>≥1</td>
+<td>Method differences among continuations</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>degenerate / lexical / productive</td>
+<td>Pre-registered taxonomy (thresholds in <code>PREREG.md</code> §3)</td>
+<td>Rule on valid, success and diversity; heuristic</td>
+<td>States</td>
+<td>Breaks high entropy apart</td>
+<td><code>A_taxonomy.csv</code></td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Predictor → outcome (post-tool, n=30 states, 15 problems)</th>
+<th style="text-align:right">ρ</th>
+<th style="text-align:right">Permutation p</th>
+<th>95% CI</th>
+<th style="text-align:right">BH</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>H10 → success</td>
+<td style="text-align:right">−.446</td>
+<td style="text-align:right">.045</td>
+<td>−.702, −.067</td>
+<td style="text-align:right">.262</td>
+</tr>
+<tr>
+<td>H10 → valid</td>
+<td style="text-align:right">−.394</td>
+<td style="text-align:right">.087</td>
+<td>−.683, .017</td>
+<td style="text-align:right">.262</td>
+</tr>
+<tr>
+<td>H10 → void</td>
+<td style="text-align:right">.235</td>
+<td style="text-align:right">.255</td>
+<td>−.143, .552</td>
+<td style="text-align:right">.346</td>
+</tr>
+<tr>
+<td>H10 → strategy diversity (n=26)</td>
+<td style="text-align:right">.394</td>
+<td style="text-align:right">.240</td>
+<td>−.311, .823</td>
+<td style="text-align:right">.346</td>
+</tr>
+<tr>
+<td>H10 → outcome uncertainty</td>
+<td style="text-align:right">−.286</td>
+<td style="text-align:right">.288</td>
+<td>−.668, .177</td>
+<td style="text-align:right">.346</td>
+</tr>
+<tr>
+<td>H10 → answer diversity (n=26, degenerate)</td>
+<td style="text-align:right">.426</td>
+<td style="text-align:right">1.000</td>
+<td>.350, .740</td>
+<td style="text-align:right">1.000</td>
+</tr>
+<tr>
+<td>H_first → success (not primary)</td>
+<td style="text-align:right">.166</td>
+<td style="text-align:right">.562</td>
+<td>−.399, .626</td>
+<td style="text-align:right">not computed</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ρ</td>
+<td>Within-problem Spearman correlation</td>
+<td>Computed after demeaning by problem</td>
+<td>−1 to 1</td>
+<td>Association within a problem, not causal</td>
+<td><code>A_correlations.csv</code></td>
+</tr>
+<tr>
+<td>Permutation p</td>
+<td>10,000 within-problem permutations</td>
+<td>Two-sided</td>
+<td>0–1</td>
+<td>Single-test significance</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>95% CI</td>
+<td>Problem-cluster bootstrap</td>
+<td>Percentile method</td>
+<td>−1 to 1</td>
+<td>Uncertainty</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>BH</td>
+<td>Benjamini–Hochberg adjusted p</td>
+<td>Pre-registered primary family of 6</td>
+<td>0–1</td>
+<td>Adjusted significance</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p>Post-hoc slopes (labelled post-hoc): with problem fixed effects, one more nat of H10 goes with a change in success of −0.329 (CI −0.833, −0.102); also controlling for turn −0.313 (−0.962, −0.060); excluding final-turn states −0.305 (−1.181, −0.069). The corresponding slope for H_first is +0.094 (−0.107, 0.635). The post-tool minus placebo interaction is −0.257 (−0.432, 0.625), with a CI that includes 0. Source: <code>A_posthoc_slopes.csv</code>.</p>
+<p><img src="results/simpletir7b/fig_A_entropy_vs_quality.png" alt="A: entropy and quality" /></p>
+<p><em>Figure 2: state-level H10 against valid rate, success rate and strategy diversity. These relations are observational.</em></p>
+<h3>3.3 Experiment B: tool feedback intervention</h3>
+<p>Same prefix, same seed list; only the tool result is replaced.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Condition</th>
+<th style="text-align:right">H10</th>
+<th style="text-align:right">Valid</th>
+<th style="text-align:right">Void</th>
+<th style="text-align:right">Success</th>
+<th style="text-align:right">Calls tool again</th>
+<th style="text-align:right">adopt</th>
+<th style="text-align:right">Mean tokens</th>
+<th style="text-align:right">Observation length</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>normal</code></td>
+<td style="text-align:right">.579</td>
+<td style="text-align:right">.678</td>
+<td style="text-align:right">.111</td>
+<td style="text-align:right">.622</td>
+<td style="text-align:right">.711</td>
+<td style="text-align:right">.400</td>
+<td style="text-align:right">1317.9</td>
+<td style="text-align:right">30.7</td>
+</tr>
+<tr>
+<td><code>perturbed</code></td>
+<td style="text-align:right">.678</td>
+<td style="text-align:right">.422</td>
+<td style="text-align:right">.244</td>
+<td style="text-align:right">.289</td>
+<td style="text-align:right">.878</td>
+<td style="text-align:right">.122</td>
+<td style="text-align:right">1605.8</td>
+<td style="text-align:right">30.7</td>
+</tr>
+<tr>
+<td><code>irrelevant</code></td>
+<td style="text-align:right">.753</td>
+<td style="text-align:right">.522</td>
+<td style="text-align:right">.289</td>
+<td style="text-align:right">.444</td>
+<td style="text-align:right">.889</td>
+<td style="text-align:right">.167</td>
+<td style="text-align:right">1508.8</td>
+<td style="text-align:right">31.1</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td style="text-align:right">.579</td>
+<td style="text-align:right">.567</td>
+<td style="text-align:right">.244</td>
+<td style="text-align:right">.533</td>
+<td style="text-align:right">.967</td>
+<td style="text-align:right">.000</td>
+<td style="text-align:right">1448.1</td>
+<td style="text-align:right">13.0</td>
+</tr>
+<tr>
+<td><code>verbose</code></td>
+<td style="text-align:right">.829</td>
+<td style="text-align:right">.722</td>
+<td style="text-align:right">.111</td>
+<td style="text-align:right">.656</td>
+<td style="text-align:right">.611</td>
+<td style="text-align:right">.478</td>
+<td style="text-align:right">1057.1</td>
+<td style="text-align:right">133.7</td>
+</tr>
+<tr>
+<td><code>text_only</code></td>
+<td style="text-align:right">.741</td>
+<td style="text-align:right">.656</td>
+<td style="text-align:right">.167</td>
+<td style="text-align:right">.589</td>
+<td style="text-align:right">.689</td>
+<td style="text-align:right">.378</td>
+<td style="text-align:right">1215.9</td>
+<td style="text-align:right">29.7</td>
+</tr>
+<tr>
+<td><code>empty</code></td>
+<td style="text-align:right">.271</td>
+<td style="text-align:right">.600</td>
+<td style="text-align:right">.144</td>
+<td style="text-align:right">.456</td>
+<td style="text-align:right">.744</td>
+<td style="text-align:right">.000</td>
+<td style="text-align:right">1424.8</td>
+<td style="text-align:right">6.0</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Condition</td>
+<td>Injected feedback (defined in <code>PREREG.md</code> §4)</td>
+<td>Tool result replaced on the same prefix</td>
+<td>Category</td>
+<td>Intervention</td>
+<td><code>run_exps.py</code></td>
+</tr>
+<tr>
+<td>H10</td>
+<td>Mean entropy of the 10 tokens after the tool result</td>
+<td>Averaged within prefix, then across prefixes; path-dependent</td>
+<td>Nats</td>
+<td>Entropy</td>
+<td><code>B_condition_means.csv</code></td>
+</tr>
+<tr>
+<td>Valid / Void / Success</td>
+<td>See §3.2</td>
+<td>Mean of shares, 15 prefixes × 6 per condition</td>
+<td>0–1</td>
+<td>Quality</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Calls tool again</td>
+<td>Share that call a tool again later</td>
+<td>Share</td>
+<td>0–1</td>
+<td>Whether the model retries</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>adopt</td>
+<td>Final answer contains a number from the injected content</td>
+<td><strong>Heuristic string match</strong>, not a direct observation</td>
+<td>0–1</td>
+<td>Whether the feedback is taken up</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Mean tokens</td>
+<td>Generated tokens</td>
+<td>Mean</td>
+<td>Tokens</td>
+<td>Continuation length</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Observation length</td>
+<td>Tokens in the injected observation</td>
+<td>Mean</td>
+<td>Tokens</td>
+<td>Length confound</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p>Paired differences from <code>normal</code>, written as difference [95% CI], Holm p. <strong>Bold</strong> means &quot;detected&quot; under the pre-registered rule (Holm p&lt;.05 and the CI excludes 0):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>H_first (exact)</th>
+<th>H10</th>
+<th>Valid</th>
+<th>Void</th>
+<th>Success</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>perturbed</code></td>
+<td>−.040 [−.154, .085], .454</td>
+<td>+.099 [.014, .183], .096</td>
+<td><strong>−.256 [−.378, −.133], .031</strong></td>
+<td>+.133 [.011, .256], .228</td>
+<td><strong>−.333 [−.500, −.178], .030</strong></td>
+</tr>
+<tr>
+<td><code>irrelevant</code></td>
+<td>−.084 [−.299, .158], .303</td>
+<td><strong>+.174 [.063, .293], .031</strong></td>
+<td>−.156 [−.322, −.000], .398</td>
+<td>+.178 [.067, .289], .074</td>
+<td>−.178 [−.356, −.022], .312</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td><strong>−.206 [−.343, −.086], .016</strong></td>
+<td>−.000 [−.114, .122], .934</td>
+<td>−.111 [−.245, .011], .459</td>
+<td>+.133 [.022, .244], .226</td>
+<td>−.089 [−.211, .011], .747</td>
+</tr>
+<tr>
+<td><code>verbose</code></td>
+<td><strong>+.704 [.385, 1.043], .016</strong></td>
+<td><strong>+.250 [.093, .452], .027</strong></td>
+<td>+.044 [−.067, .156], .977</td>
+<td>.000 [−.078, .089], 1.000</td>
+<td>+.033 [−.067, .133], .747</td>
+</tr>
+<tr>
+<td><code>text_only</code></td>
+<td><strong>+.333 [.136, .583], .003</strong></td>
+<td><strong>+.162 [.102, .236], .002</strong></td>
+<td>−.022 [−.089, .044], .977</td>
+<td>+.056 [.000, .122], .228</td>
+<td>−.033 [−.100, .022], .747</td>
+</tr>
+<tr>
+<td><code>empty</code></td>
+<td><strong>+.465 [.196, .757], .022</strong></td>
+<td><strong>−.308 [−.483, −.144], .013</strong></td>
+<td>−.078 [−.222, .044], .977</td>
+<td>+.033 [−.078, .144], 1.000</td>
+<td>−.167 [−.344, −.011], .370</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Condition</td>
+<td>Condition compared with <code>normal</code></td>
+<td>Paired by prefix, n=15</td>
+<td>Category</td>
+<td>Intervention</td>
+<td><code>B_effects.csv</code></td>
+</tr>
+<tr>
+<td>H_first (exact)</td>
+<td>Difference in first-token entropy</td>
+<td>Exact distribution, no sampling; <strong>holds for the 4-bit model only (§3.6)</strong></td>
+<td>Nats</td>
+<td>Immediate effect of the feedback</td>
+<td><code>B_first_token_effects.csv</code></td>
+</tr>
+<tr>
+<td>H10</td>
+<td>Difference in H10</td>
+<td>Paired difference</td>
+<td>Nats</td>
+<td>Change in short-range entropy</td>
+<td><code>B_effects.csv</code></td>
+</tr>
+<tr>
+<td>Valid / Void / Success</td>
+<td>Difference in shares</td>
+<td>Paired difference</td>
+<td>−1 to 1</td>
+<td>Change in quality</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>CI</td>
+<td>Bootstrap over prefixes</td>
+<td>Percentile method</td>
+<td>Same as difference</td>
+<td>Uncertainty</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Holm p</td>
+<td>Wilcoxon signed-rank, Holm across 6 conditions within an outcome</td>
+<td>Not corrected across outcomes</td>
+<td>0–1</td>
+<td>Adjusted significance</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p>Two conditions measured at the first token only: <code>error_name</code> −.225 (CI −.356, −.104, Holm .0005), <code>timeout</code> −.193 (CI −.331, −.069, Holm .031). Source: <code>B_first_token_effects.csv</code>.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Dissociation pair</th>
+<th>Outcome</th>
+<th style="text-align:right">ΔH10</th>
+<th style="text-align:right">ΔOutcome</th>
+<th>95% CI</th>
+<th style="text-align:right">p (uncorrected)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>perturbed</code> − <code>text_only</code></td>
+<td>Success</td>
+<td style="text-align:right">−.063</td>
+<td style="text-align:right">−.300</td>
+<td>−.433, −.167</td>
+<td style="text-align:right">.005</td>
+</tr>
+<tr>
+<td><code>perturbed</code> − <code>text_only</code></td>
+<td>Valid</td>
+<td style="text-align:right">−.063</td>
+<td style="text-align:right">−.233</td>
+<td>−.356, −.111</td>
+<td style="text-align:right">.006</td>
+</tr>
+<tr>
+<td><code>irrelevant</code> − <code>verbose</code></td>
+<td>Success</td>
+<td style="text-align:right">−.076</td>
+<td style="text-align:right">−.211</td>
+<td>−.378, −.067</td>
+<td style="text-align:right">.020</td>
+</tr>
+<tr>
+<td><code>normal</code> − <code>perturbed</code></td>
+<td>Success</td>
+<td style="text-align:right">−.099</td>
+<td style="text-align:right">+.333</td>
+<td>.178, .489</td>
+<td style="text-align:right">.005</td>
+</tr>
+<tr>
+<td><code>normal</code> − <code>perturbed</code></td>
+<td>Valid</td>
+<td style="text-align:right">−.099</td>
+<td style="text-align:right">+.256</td>
+<td>.133, .378</td>
+<td style="text-align:right">.005</td>
+</tr>
+<tr>
+<td><code>error</code> − <code>perturbed</code></td>
+<td>Success</td>
+<td style="text-align:right">−.100</td>
+<td style="text-align:right">+.244</td>
+<td>.111, .400</td>
+<td style="text-align:right">.017</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Dissociation pair</td>
+<td>Condition pair meeting the pre-registered criterion</td>
+<td>abs(ΔH10)&lt;0.1, outcome difference &gt;0.2, CI excludes 0</td>
+<td>Category</td>
+<td>Similar entropy, different quality</td>
+<td><code>B_dissociation.csv</code></td>
+</tr>
+<tr>
+<td>ΔH10</td>
+<td>Difference in H10 between conditions</td>
+<td>Paired difference; H10 itself was not intervened on</td>
+<td>Nats</td>
+<td>How close the entropy is</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>ΔOutcome</td>
+<td>Difference in outcome between conditions</td>
+<td>Paired difference</td>
+<td>−1 to 1</td>
+<td>Difference in quality</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>95% CI</td>
+<td>Prefix bootstrap</td>
+<td>Percentile method</td>
+<td>−1 to 1</td>
+<td>Uncertainty</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>p (uncorrected)</td>
+<td>Wilcoxon</td>
+<td>42 comparisons, uncorrected</td>
+<td>0–1</td>
+<td>Single-test strength</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p>For <code>normal</code> − <code>perturbed</code> and <code>error</code> − <code>perturbed</code>, abs(ΔH10) sits right at 0.1, so they should not be the main evidence; <code>perturbed</code> − <code>text_only</code> and <code>irrelevant</code> − <code>verbose</code> are firmer.</p>
+<p>Post-hoc split (6 AIME, 9 MATH): success from <code>normal</code> to <code>perturbed</code> is .278→.028 on AIME and .852→.463 on MATH; <code>verbose</code> is .444 and .796. Three prefixes already have success 0 under <code>normal</code> and cannot fall further. CI not computed. Source: <code>B_by_source.csv</code>, <code>B_prefix_condition.csv</code>.</p>
+<p>Across prefixes (observational): under <code>normal</code>, H10 and success have ρ=−.647 (p=.009); the other conditions range from −.402 to +.087, none reaching p&lt;.05. Source: <code>B_within_condition.csv</code>.</p>
+<p><img src="results/simpletir7b/fig_B_conditions.png" alt="B: conditions" /></p>
+<p><em>Figure 3: each point is one prefix.</em></p>
+<h3>3.4 Experiment C: branching under an equal budget (inference only, no training)</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Arm</th>
+<th style="text-align:right">Any branch correct</th>
+<th style="text-align:right">Branch accuracy</th>
+<th style="text-align:right">Branch valid</th>
+<th style="text-align:right">Branch void</th>
+<th style="text-align:right">Branches</th>
+<th style="text-align:right">Tokens</th>
+<th style="text-align:right">Tool calls</th>
+<th style="text-align:right">First token differs</th>
+<th>vs <code>random</code> (wins/losses, p)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tool_boundary</code></td>
+<td style="text-align:right">.9</td>
+<td style="text-align:right">.572</td>
+<td style="text-align:right">.572</td>
+<td style="text-align:right">.122</td>
+<td style="text-align:right">4.4</td>
+<td style="text-align:right">2999.2</td>
+<td style="text-align:right">3.0</td>
+<td style="text-align:right">.289</td>
+<td>5/1, .219</td>
+</tr>
+<tr>
+<td><code>posttool_high</code></td>
+<td style="text-align:right">.7</td>
+<td style="text-align:right">.262</td>
+<td style="text-align:right">.279</td>
+<td style="text-align:right">.303</td>
+<td style="text-align:right">4.5</td>
+<td style="text-align:right">2964.4</td>
+<td style="text-align:right">4.4</td>
+<td style="text-align:right">.867</td>
+<td>2/0, .500</td>
+</tr>
+<tr>
+<td><code>high_entropy</code></td>
+<td style="text-align:right">.6</td>
+<td style="text-align:right">.260</td>
+<td style="text-align:right">.310</td>
+<td style="text-align:right">.270</td>
+<td style="text-align:right">4.4</td>
+<td style="text-align:right">2957.0</td>
+<td style="text-align:right">4.1</td>
+<td style="text-align:right">.936</td>
+<td>4/3, 1.000</td>
+</tr>
+<tr>
+<td><code>low_entropy</code></td>
+<td style="text-align:right">.6</td>
+<td style="text-align:right">.283</td>
+<td style="text-align:right">.283</td>
+<td style="text-align:right">.183</td>
+<td style="text-align:right">2.5</td>
+<td style="text-align:right">2990.2</td>
+<td style="text-align:right">5.0</td>
+<td style="text-align:right">.000</td>
+<td>3/2, 1.000</td>
+</tr>
+<tr>
+<td><code>random</code></td>
+<td style="text-align:right">.5</td>
+<td style="text-align:right">.300</td>
+<td style="text-align:right">.300</td>
+<td style="text-align:right">.342</td>
+<td style="text-align:right">2.8</td>
+<td style="text-align:right">2981.1</td>
+<td style="text-align:right">4.8</td>
+<td style="text-align:right">.108</td>
+<td>Control</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>pass@budget</code> (including roots) is .9 for all five arms; only 2 problems have both roots wrong, and the rescue rate is .5 for every arm. CI not computed.</p>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Arm</td>
+<td>Rule for where to resample (see <code>PREREG.md</code> §5)</td>
+<td>All arms share the same two roots</td>
+<td>Category</td>
+<td>Branching criterion</td>
+<td><code>C_arm_summary.csv</code></td>
+</tr>
+<tr>
+<td>Any branch correct</td>
+<td>Share of problems with at least one correct branch, excluding roots</td>
+<td>Problem-level mean, n=10</td>
+<td>0–1</td>
+<td>Branch yield</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Branch accuracy / valid / void</td>
+<td>Corresponding shares among branches</td>
+<td>Averaged within, then across problems</td>
+<td>0–1</td>
+<td>Branch quality</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Branches / Tokens / Tool calls</td>
+<td>Spending per problem</td>
+<td>Mean</td>
+<td>Count / tokens / count</td>
+<td>Budget use; tool calls are not equal</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>First token differs</td>
+<td>Share where the resampled first token differs from the original path</td>
+<td>Share</td>
+<td>0–1</td>
+<td>Whether a new path actually starts</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>vs <code>random</code></td>
+<td>Per-problem comparison on any branch correct</td>
+<td>Exact sign test</td>
+<td>Wins/losses, p</td>
+<td>Whether it beats random</td>
+<td><code>C_vs_random.csv</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>Branch positions (post-hoc): <code>tool_boundary</code> mean turn 1.909, position 0 within the turn, branch correct .636; <code>posttool_high</code> turn 2.333, median position 30, .333; <code>high_entropy</code> turn 2.295, median position 124.5, .295; <code>random</code> turn 1.250, median 301, .357; <code>low_entropy</code> turn 0.800, median 325, .280. These branch-correct values are direct means over all branches, so they differ from the table above (within, then across problems). Source: <code>C_branch_position.csv</code>.</p>
+<p><img src="results/simpletir7b/fig_C_arms.png" alt="C: arms" /></p>
+<p><em>Figure 4: mean branch accuracy under an equal budget.</em></p>
+<h3>3.5 Experiment D: void audit and post-hoc probe</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Stage</th>
+<th style="text-align:right">answer</th>
+<th style="text-align:right">budget</th>
+<th style="text-align:right">turn_limit</th>
+<th style="text-align:right">void_eos</th>
+<th style="text-align:right">void_trunc</th>
+<th style="text-align:right">Total</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>calib</td>
+<td style="text-align:right">96</td>
+<td style="text-align:right">21</td>
+<td style="text-align:right">10</td>
+<td style="text-align:right">13</td>
+<td style="text-align:right">4</td>
+<td style="text-align:right">144</td>
+</tr>
+<tr>
+<td>A</td>
+<td style="text-align:right">157</td>
+<td style="text-align:right">28</td>
+<td style="text-align:right">32</td>
+<td style="text-align:right">53</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">270</td>
+</tr>
+<tr>
+<td>B</td>
+<td style="text-align:right">375</td>
+<td style="text-align:right">110</td>
+<td style="text-align:right">27</td>
+<td style="text-align:right">108</td>
+<td style="text-align:right">10</td>
+<td style="text-align:right">630</td>
+</tr>
+<tr>
+<td>C</td>
+<td style="text-align:right">77</td>
+<td style="text-align:right">41</td>
+<td style="text-align:right">26</td>
+<td style="text-align:right">42</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">186</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Stage</td>
+<td>Experiment stage</td>
+<td>Grouping</td>
+<td>Category</td>
+<td>Data source</td>
+<td><code>D_terminations.csv</code></td>
+</tr>
+<tr>
+<td>answer</td>
+<td>Ended in a boxed answer</td>
+<td>Count</td>
+<td>Rollouts</td>
+<td>Normal ending</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>budget</td>
+<td>Hit the token budget</td>
+<td>Count</td>
+<td>Rollouts</td>
+<td>Laptop limit</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>turn_limit</td>
+<td>Reached the turn limit without ending</td>
+<td>Count</td>
+<td>Rollouts</td>
+<td>Turns used up</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>void_eos</td>
+<td>Void, ending in EOS</td>
+<td>Count</td>
+<td>Rollouts</td>
+<td>Void turn</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>void_trunc</td>
+<td>Void, cut by the per-turn limit</td>
+<td>Count</td>
+<td>Rollouts</td>
+<td>Void caused by the limit</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Total</td>
+<td>Rollouts in the stage</td>
+<td>Sum</td>
+<td>Rollouts</td>
+<td>Sample size</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align:right">Calls so far</th>
+<th style="text-align:right">Turns</th>
+<th style="text-align:right"><code>code</code></th>
+<th style="text-align:right"><code>answer</code></th>
+<th style="text-align:right"><code>answer_with_code</code></th>
+<th style="text-align:right">budget_cut</th>
+<th style="text-align:right">Give-up string</th>
+<th style="text-align:right">Other void</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">0</td>
+<td style="text-align:right">192</td>
+<td style="text-align:right">189</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">3</td>
+</tr>
+<tr>
+<td style="text-align:right">1</td>
+<td style="text-align:right">1006</td>
+<td style="text-align:right">734</td>
+<td style="text-align:right">73</td>
+<td style="text-align:right">183</td>
+<td style="text-align:right">6</td>
+<td style="text-align:right">0</td>
+<td style="text-align:right">10</td>
+</tr>
+<tr>
+<td style="text-align:right">2</td>
+<td style="text-align:right">825</td>
+<td style="text-align:right">512</td>
+<td style="text-align:right">110</td>
+<td style="text-align:right">134</td>
+<td style="text-align:right">59</td>
+<td style="text-align:right">3</td>
+<td style="text-align:right">7</td>
+</tr>
+<tr>
+<td style="text-align:right">3</td>
+<td style="text-align:right">590</td>
+<td style="text-align:right">335</td>
+<td style="text-align:right">89</td>
+<td style="text-align:right">50</td>
+<td style="text-align:right">104</td>
+<td style="text-align:right">3</td>
+<td style="text-align:right">9</td>
+</tr>
+<tr>
+<td style="text-align:right">4</td>
+<td style="text-align:right">378</td>
+<td style="text-align:right">90</td>
+<td style="text-align:right">47</td>
+<td style="text-align:right">19</td>
+<td style="text-align:right">27</td>
+<td style="text-align:right">193</td>
+<td style="text-align:right">2</td>
+</tr>
+</tbody>
+</table></div>
+<p>After 4 calls, the string accounts for 193/378 = .511.</p>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Calls so far</td>
+<td>Tool calls before this turn starts</td>
+<td>From stage and turn index</td>
+<td>0–4</td>
+<td>Position in the rollout</td>
+<td><code>D_turn_classes_by_calls.csv</code></td>
+</tr>
+<tr>
+<td>Turns</td>
+<td>Turns in this group</td>
+<td>Count</td>
+<td>Turns</td>
+<td>Sample size</td>
+<td>Same</td>
+</tr>
+<tr>
+<td><code>code</code> / <code>answer</code> / <code>answer_with_code</code></td>
+<td>How the turn ended</td>
+<td>Rule-based class</td>
+<td>Turns</td>
+<td>Normal turns</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>budget_cut</td>
+<td>Last turn, cut by the budget</td>
+<td>Rule-based class</td>
+<td>Turns</td>
+<td>Not counted as void</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Give-up string</td>
+<td>Text is exactly <code>Reach max function call limit.</code></td>
+<td>Exact string match, defined post hoc</td>
+<td>Turns</td>
+<td>Fixed reaction</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Other void</td>
+<td>Remaining void turns</td>
+<td>Rule-based class</td>
+<td>Turns</td>
+<td>Genuinely varied void</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Within state, void − non-void (n=75 states)</th>
+<th style="text-align:right">Mean</th>
+<th>95% CI</th>
+<th style="text-align:right">p</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ΔH_first (sanity check, should be near 0)</td>
+<td style="text-align:right">.001</td>
+<td>−.004, .006</td>
+<td style="text-align:right">.430</td>
+</tr>
+<tr>
+<td>ΔH10</td>
+<td style="text-align:right">−.047</td>
+<td>−.125, .020</td>
+<td style="text-align:right">.815</td>
+</tr>
+<tr>
+<td>ΔH50</td>
+<td style="text-align:right">−.052</td>
+<td>−.126, .012</td>
+<td style="text-align:right">.303</td>
+</tr>
+<tr>
+<td>Δsurprisal (first 10)</td>
+<td style="text-align:right">−.084</td>
+<td>−.188, .014</td>
+<td style="text-align:right">.245</td>
+</tr>
+<tr>
+<td>Δgn (first 10)</td>
+<td style="text-align:right">−.014</td>
+<td>−.049, .017</td>
+<td style="text-align:right">.686</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Measure</td>
+<td>Difference between void and non-void continuations of one state</td>
+<td>Averaged within state, then differenced</td>
+<td>Nats or unitless</td>
+<td>Removes state effects</td>
+<td><code>D_same_state_tests.csv</code></td>
+</tr>
+<tr>
+<td>Mean</td>
+<td>Mean difference</td>
+<td>Across states</td>
+<td>Same as measure</td>
+<td>Size of the difference</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>95% CI</td>
+<td>Bootstrap</td>
+<td>Percentile method</td>
+<td>Same as measure</td>
+<td>Uncertainty</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>p</td>
+<td>Paired test, uncorrected</td>
+<td>Wilcoxon</td>
+<td>0–1</td>
+<td>Single-test strength</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>gn</code> = sqrt(1 − 2p_a + Σp²) is only a proxy for the sensitivity of log p(a) to logits. <strong>It is not a training gradient.</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Turn</th>
+<th style="text-align:right">Turns</th>
+<th style="text-align:right">Problems</th>
+<th>H_first</th>
+<th>H10</th>
+<th>H50</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>First turn</td>
+<td style="text-align:right">144</td>
+<td style="text-align:right">36</td>
+<td>.018 [.012, .025]</td>
+<td>.176 [.154, .198]</td>
+<td>.177 [.146, .207]</td>
+</tr>
+<tr>
+<td>After tool, 1–3 calls</td>
+<td style="text-align:right">2283</td>
+<td style="text-align:right">36</td>
+<td>.329 [.250, .409]</td>
+<td>.685 [.559, .818]</td>
+<td>.685 [.541, .830]</td>
+</tr>
+<tr>
+<td>After tool, 4 calls</td>
+<td style="text-align:right">358</td>
+<td style="text-align:right">16</td>
+<td>.789 [.575, .991]</td>
+<td>.624 [.402, .918]</td>
+<td>.600 [.360, .925]</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Turn</td>
+<td>Grouped by calls so far</td>
+<td>Only turns that truly start at the turn start</td>
+<td>Category</td>
+<td>Replicates ARPO's observation</td>
+<td><code>D_arpo_entropy_rise.csv</code></td>
+</tr>
+<tr>
+<td>Turns / Problems</td>
+<td>Sample size</td>
+<td>Count</td>
+<td>Integer</td>
+<td>Sample size</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>H_first / H10 / H50</td>
+<td>Mean entropy [95% CI]</td>
+<td>Within, then across problems; problem bootstrap</td>
+<td>Nats</td>
+<td>Rise in entropy after tools</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Post-hoc probe:</strong> probability that the first token after the tool result is <code>Reach</code> (exact), 25 states per cell.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th style="text-align:right">Calls</th>
+<th style="text-align:right">Problems</th>
+<th>No suffix</th>
+<th>With <code>\n</code></th>
+<th>With <code>\n</code> + blank result</th>
+<th style="text-align:right">Median with <code>\n</code></th>
+<th style="text-align:right">Share P&gt;.5 with <code>\n</code></th>
+<th>With <code>\n</code> − none (95% CI)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:right">1</td>
+<td style="text-align:right">19</td>
+<td>.0000</td>
+<td>.0009 [.0003, .0015]</td>
+<td>.0001</td>
+<td style="text-align:right">.0001</td>
+<td style="text-align:right">.00</td>
+<td>.0008 [.0003, .0014]</td>
+</tr>
+<tr>
+<td style="text-align:right">2</td>
+<td style="text-align:right">15</td>
+<td>.0001</td>
+<td>.1687 [.0637, .3036]</td>
+<td>.0003</td>
+<td style="text-align:right">.0605</td>
+<td style="text-align:right">.16</td>
+<td>.1685 [.0663, .3051]</td>
+</tr>
+<tr>
+<td style="text-align:right">3</td>
+<td style="text-align:right">15</td>
+<td>.0002</td>
+<td>.3545 [.2072, .5305]</td>
+<td>.0008</td>
+<td style="text-align:right">.2312</td>
+<td style="text-align:right">.28</td>
+<td>.3543 [.2095, .5244]</td>
+</tr>
+<tr>
+<td style="text-align:right">4</td>
+<td style="text-align:right">9</td>
+<td>.0007</td>
+<td>.4042 [.2784, .5117]</td>
+<td>.0037</td>
+<td style="text-align:right">.1156</td>
+<td style="text-align:right">.40</td>
+<td>.4035 [.2833, .5071]</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Calls</td>
+<td>Tool calls in the context</td>
+<td>States drawn from real calibration and A rollouts, at most 4 per problem</td>
+<td>1–4</td>
+<td>Call history</td>
+<td><code>probe_giveup.csv</code></td>
+</tr>
+<tr>
+<td>Problems</td>
+<td>Problems in this cell</td>
+<td>Count</td>
+<td>Integer</td>
+<td>Number of clusters</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>No suffix / With <code>\n</code> / With <code>\n</code> + blank result</td>
+<td>Mean P(<code>Reach</code>) under three observations</td>
+<td>Exact probability, no sampling; CI by problem-cluster bootstrap (CIs not listed are in the CSV)</td>
+<td>0–1</td>
+<td>Trigger conditions</td>
+<td><code>probe_giveup_ci.csv</code></td>
+</tr>
+<tr>
+<td>Median / Share P&gt;.5</td>
+<td>Distribution with <code>\n</code></td>
+<td>State-level statistics</td>
+<td>0–1</td>
+<td>The distribution is bimodal</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>With <code>\n</code> − none</td>
+<td>Paired difference on the same state</td>
+<td>Problem-cluster bootstrap</td>
+<td>−1 to 1</td>
+<td>Effect of the one-token intervention</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p>Note: the real protocol appends <code>\n</code> only at the last turn, so the suffix at 1–3 calls is counterfactual. Cells 1–2 and cells 3–4 use different computation paths (9 rows compared: abs(ΔP) at most .021, abs(ΔH) at most .102, <code>probe_path_check.csv</code>).</p>
+<h3>3.6 Fidelity</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Comparison</th>
+<th style="text-align:right">Rollouts</th>
+<th style="text-align:right">Tokens</th>
+<th style="text-align:right">Spearman</th>
+<th style="text-align:right">Mean abs(ΔH)</th>
+<th style="text-align:right">p99 abs(ΔH)</th>
+<th style="text-align:right">Post-tool first-token n</th>
+<th style="text-align:right">First-token Spearman</th>
+<th style="text-align:right">First-token mean abs(ΔH)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4-bit vs 8-bit (early, within 500 tokens, mostly first turn)</td>
+<td style="text-align:right">12</td>
+<td style="text-align:right">4674</td>
+<td style="text-align:right">.910</td>
+<td style="text-align:right">.045</td>
+<td style="text-align:right">.541</td>
+<td style="text-align:right">1</td>
+<td style="text-align:right">not computed</td>
+<td style="text-align:right">.767</td>
+</tr>
+<tr>
+<td>4-bit vs 8-bit (post-tool, within 2000 tokens)</td>
+<td style="text-align:right">12</td>
+<td style="text-align:right">7418</td>
+<td style="text-align:right">.965</td>
+<td style="text-align:right">.073</td>
+<td style="text-align:right">.680</td>
+<td style="text-align:right">18</td>
+<td style="text-align:right">.643</td>
+<td style="text-align:right">.221</td>
+</tr>
+<tr>
+<td>4-bit vs 4-bit (path-noise control, post hoc)</td>
+<td style="text-align:right">12</td>
+<td style="text-align:right">7418</td>
+<td style="text-align:right">.975</td>
+<td style="text-align:right">.008</td>
+<td style="text-align:right">.076</td>
+<td style="text-align:right">18</td>
+<td style="text-align:right">.998</td>
+<td style="text-align:right">.009</td>
+</tr>
+</tbody>
+</table></div>
+<p>Spearman over all tokens is affected by the many entropy values near 0 (the self-control is only .975), so read it alongside abs(ΔH).</p>
+<p><strong>Fidelity of P(<code>Reach</code>) is unverified:</strong> at these 18 positions P is below .01 and none has the final-turn suffix. There is no comparison with the original fp16 weights (16 GB of memory was not enough). Fidelity of H10: not computed.</p>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Comparison</td>
+<td>Logged 4-bit entropy versus entropy replayed through reference weights</td>
+<td>Single-pass replay of real rollouts</td>
+<td>Category</td>
+<td>Sensitivity to quantisation</td>
+<td><code>fidelity_*.json</code></td>
+</tr>
+<tr>
+<td>Rollouts / Tokens</td>
+<td>Sample size</td>
+<td>Count</td>
+<td>Integer</td>
+<td>Sample size</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Spearman</td>
+<td>Rank correlation by position</td>
+<td>The post-tool comparisons contain only tokens from the second turn on</td>
+<td>−1 to 1</td>
+<td>Whether relative order is kept</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Mean abs(ΔH) / p99 abs(ΔH)</td>
+<td>Mean and 99th percentile of the absolute difference</td>
+<td>By position</td>
+<td>Nats</td>
+<td>Numeric deviation</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>First-token columns</td>
+<td>Only the first token after a tool result</td>
+<td>Same; small n, CI not computed</td>
+<td>Same</td>
+<td>Reliability of <code>H_first</code></td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p>Tool result kinds (timeouts may be inflated by machine load): timeout rate calibration .096 (30/314), A .073 (27/372), B .041 (40/983), C .103 (22/213). Source: <code>tool_kinds_by_stage.csv</code>.</p>
+<h2 id="4-case-studies">4. Case studies</h2>
+<p>Cases are chosen by a rule in <code>analyze.py</code> (<code>case_studies.md</code>), not picked by hand.</p>
+<p><strong>Success and failure from one prefix (B, <code>math_counting_and_probability_25149</code>, 1.00 to 0.00, the largest drop).</strong> The answer is 63.</p>
+<ul>
+<li><code>normal</code> (<code>Code execution result: 63</code>, H_first .141): <code>...is \(\boxed{63}\). This result has been verified through the code and is accurate.</code> Correct.</li>
+<li><code>perturbed</code> (<code>Code execution result: 39</code>, H_first .035): <code>...is \(\boxed{39}\). This result has been verified through the code and is accurate.</code> Wrong. First-token entropy is low, and the model still adopts the wrong number.</li>
+<li><code>error</code> (H_first .002): <code>It seems that there was an error due to incorrect range values...</code>, rewrites the loop, correct.</li>
+<li><code>verbose</code> (H_first 1.304): <code>The number of integer coordinate points ... is \(\boxed{63}\).</code> Highest first-token entropy, still correct.</li>
+</ul>
+<p><strong>High entropy and valid (A, <code>aime24_10:r1:t3</code>, H10 1.71, success .83, valid .83).</strong> One continuation gives <code>\boxed{371}</code>, correct; another keeps rechecking until the turn limit (<code>Interestingly, it yielded ...</code>).</p>
+<p><strong>High entropy and degenerate (A, <code>aime24_10:r3:t3</code>, H10 2.04, success 0, valid 0).</strong> Openings include <code>It appears that my code might be flawed...</code> and <code>It appears our logic still isn't correct...</code>. All 6 continuations first write code and get a result; in the next turn (after 4 calls) 5 of them output <code>Reach max function call limit.</code>, which counts as void, and the other reaches the turn limit. In 2 of them the tool output already contains this problem's correct answer (for example <code>Sum m + n: 371</code>), yet this string means no answer is given. So the low quality of this high-entropy state comes at least partly from the fixed final-turn output (an observation about this one state).</p>
+<p><strong>Fixed void (calibration, <code>calib:aime24_01:0</code>, turn 5, after 4 calls).</strong> The previous tool result is <code>None</code>. The first token of the next turn is <code>Reach</code>, with probability about .987 (logp −0.013) and H_first .073, followed by the whole string and EOS. In this example the void is low-entropy; it does not look like a collapse after uncertainty.</p>
+<h2 id="5-key-findings-minimal-interpretation">5. Key Findings / Minimal Interpretation</h2>
+<p><em>Label: Interpretation, not a first-level conclusion.</em></p>
+<p>Answer to the core question: for this model and at this size, <strong>high entropy after tool feedback does not by itself indicate either valuable exploration or unstable continuation.</strong> Content (whether the numbers are right) can lower quality while the change in H10 goes undetected; form (logs, no tool marker) can raise H10 with no detected change in quality. In A, high-H10 states have lower quality, but this does not pass correction and may come from path dependence.</p>
+<p>D also suggests caution in using void as a proxy for &quot;instability&quot;: in this model, void is mainly a fixed output sensitive to the protocol's format.</p>
+<p>Relation to existing methods (Interpretation): ReTool excludes tool-output tokens from the policy loss, but the tool output stays in the context, and B measures the effect of that content on later tokens; SimpleTIR filters void trajectories, while void here is mostly a fixed string; ARPO uses the rise in post-tool entropy as a branching signal, and the rise is replicated here (§3.5), but equal-budget branching shows no advantage for choosing positions by entropy (§3.4, n=10).</p>
+<h2 id="6-limitations">6. Limitations</h2>
+<ul>
+<li><strong>One model, 4-bit.</strong> Post-tool first-token entropy is sensitive to quantisation (§3.6), so <code>H_first</code> results should be taken as properties of the 4-bit model only. Fidelity of H10: not computed. fp16 was not compared. The ARPO model replication was not run.</li>
+<li><strong>Small size.</strong> B has 15 prefixes, A 30 states, C 10 problems. Not detected does not mean no effect: the success point estimates for <code>irrelevant</code> and <code>empty</code> fall by .178 and .167.</li>
+<li><strong>Multiple comparisons.</strong> Holm is applied only within an outcome. The 42 dissociation comparisons are uncorrected. The 0.1 threshold is pre-registered, but two results sit right on it.</li>
+<li><strong>H10 is path-dependent.</strong> B intervenes on the feedback, not on entropy, so entropy cannot be said to cause any outcome; only the effect from feedback to outcome is a causal estimate.</li>
+<li><strong>Length.</strong> <code>verbose</code> differs in length (133.7 versus 30.7 tokens). <code>text_only</code> also changes a little text besides the tool marker. B's budget rate is .111–.244, and limits shorter than the official ones may depress success.</li>
+<li><strong>The probe reads only the first token,</strong> with just two manipulations. Cell 4 comes from only 9 problems. Fidelity of P(<code>Reach</code>) is unverified.</li>
+<li><strong>Environment.</strong> T=1 with no top-p is not the official evaluation. Timeout rates may be affected by load; the runs span three sessions with pauses and interruptions (§8).</li>
+<li><strong>Problem selection.</strong> Problems were selected from calibration by outcome mix, so regression to the mean is possible. Three of B's prefixes already have success 0 under <code>normal</code>.</li>
+<li><strong>No training.</strong> All conclusions concern inference with trained weights and say nothing about RL updates.</li>
+</ul>
+<h2 id="7-novelty-risk">7. Novelty risk</h2>
+<p>Details are in <code>notes/smoke_novelty.md</code>. Conclusions cover only what was searched; this is not an exhaustive literature review.</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Experiment</th>
+<th>Risk</th>
+<th>Closest work</th>
+<th>Adjustment</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>Medium</td>
+<td>APPO 2606.12384 (weak relation between entropy and branch outcome); Tool-Light 2509.23285 (post-tool entropy fluctuates, abstract only)</td>
+<td>Do not lead with &quot;entropy is unreliable&quot;; use it as observational background to B</td>
+</tr>
+<tr>
+<td>B</td>
+<td>Medium</td>
+<td><strong>2608.06270 already replaces observations under a fixed prefix for visual tools (no entropy in the full text, not code TIR)</strong>; ProCredit 2609.27532 App. A (observational)</td>
+<td>Narrow the claim to: measuring post-tool entropy and continuation quality together on code TIR</td>
+</tr>
+<tr>
+<td>C</td>
+<td>High</td>
+<td>APPO's resampling comparison</td>
+<td>Replication and control only, not a main contribution</td>
+</tr>
+<tr>
+<td>D + probe</td>
+<td>Low to medium</td>
+<td>No work found linking void to a protocol suffix (two searches)</td>
+<td>Check the training code and other checkpoints first, then judge whether it merits writing up</td>
+</tr>
+</tbody>
+</table></div>
+<h4>Column Definitions</h4>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Definition</th>
+<th>Computation</th>
+<th>Unit / Range</th>
+<th>Meaning</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Experiment</td>
+<td>The four experiments and the probe</td>
+<td>Grouped by hand</td>
+<td>Category</td>
+<td>Scope</td>
+<td>This report</td>
+</tr>
+<tr>
+<td>Risk</td>
+<td>Risk that it has already been done</td>
+<td><strong>Judged by hand, not measured</strong></td>
+<td>Low / medium / high</td>
+<td>Guides investment</td>
+<td><code>notes/smoke_novelty.md</code></td>
+</tr>
+<tr>
+<td>Closest work</td>
+<td>Nearest papers read so far</td>
+<td>Checked by hand against the source; depth of reading is in the note</td>
+<td>Text</td>
+<td>Extent of overlap</td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Adjustment</td>
+<td>Change to the research question</td>
+<td>Judged by hand</td>
+<td>Text</td>
+<td>Next direction</td>
+<td>Same</td>
+</tr>
+</tbody>
+</table></div>
+<p>Comparison with ProCredit: here <code>error</code> lowers first-token entropy (−.206), leaves H10 unchanged and raises H50 (+.268, Holm .027); ProCredit reports a rise of +0.235±0.034 over the first 20 tokens of error turns on 4B. The model, task and design (observational versus intervention) all differ, so this is not a contradiction, and the two cannot be pooled.</p>
+<h2 id="8-deviations">8. Deviations</h2>
+<p>Relative to <code>PREREG.md</code>. The three items in its §7 (length limits, sizes, 8-bit reference) are already recorded there.</p>
+<ol>
+<li><strong>The placebo correlation cannot be computed.</strong> My design has only one placebo state per problem, so no within-problem correlation exists, and the placebo columns in <code>A_posttool_vs_placebo.csv</code> are empty. A post-hoc fixed-effects interaction replaces it.</li>
+<li><strong>pass@8 became pass@6</strong>, since each state has only 6 continuations.</li>
+<li><strong><code>answer_div</code> is almost always 1,</strong> so its statistics are degenerate (p=1.0) and should not be interpreted.</li>
+<li><strong>Post-hoc analyses:</strong> void split (give-up / other), fixed-effects slopes, split by source, branch positions, give-up probe. All were added after seeing the data and are labelled.</li>
+<li><strong>Fidelity:</strong> the first check had only 1 post-tool first token; a post-tool replay and a 4-bit self-control were added post hoc. The reference is 8-bit, not fp16.</li>
+<li><strong>Analysis corrections:</strong> (a) last turns cut by the budget are no longer void; (b) <code>first turn</code> had included 48 A placebo turn-0 rollouts and C mid-turn branches, and after correction first-turn H10 moves from .171 to .176 and post-tool from .690 to .685, with Figure 1 regenerated; (c) the case-study script picked the same rollout twice when success was 0, now fixed. Interim numbers given earlier in chat are superseded by this report.</li>
+<li><strong>Probe code change:</strong> cell 3 thrashed memory, so the code was changed to share the prefix. Cells 1–2 use the old path, cells 3–4 the new one.</li>
+<li><strong>Run history:</strong> three sessions. I ran the probe concurrently with B, and B added no rollouts 10:05–11:16. The end of a Claude Code session interrupted the job once (B=325); two low-battery pauses followed (12:04–14:09; from 15:25 until stopped by the user, resumed 18:37 with B=390). Rollouts not yet written at an interruption were rerun. The deadlines for B and C moved from 15:30 / 17:00 to 22:00 / 22:45, and neither was actually cut off (<code>stop=None</code>). Pauses and machine load may have affected tool timeout rates.</li>
+<li><strong>ARPO replication (pre-registered as time permitting) was not run.</strong></li>
+</ol>
+<h2 id="9-suggested-items-for-the-6-november-discussion">9. Suggested items for the 6 November discussion</h2>
+<p><strong>Most worth discussing (observed results):</strong></p>
+<ol>
+<li><strong>The dissociation in B:</strong> form can raise entropy without hurting quality, and content can hurt quality while the entropy change goes undetected. This poses a concrete question for approaches such as ARPO, AEPO and TAO-RL that treat high post-tool entropy as an exploration signal.</li>
+<li><strong>The fixed void string and its one-token trigger:</strong> this may affect how void-turn statistics and filtering are understood. Ask for a judgement on whether this is peculiar to one model or a general issue worth checking.</li>
+</ol>
+<p><strong>Decisions that need the professor's judgement:</strong></p>
+<ul>
+<li>Whether the project should grow from a survey into a research paper (the maximum goal in <code>plan.md</code> §1 is still the survey, and §11 still says no GPU experiments).</li>
+<li>Whether the next step needs a GPU: fp16 weights, 50 or more prefixes, and the ARPO model.</li>
+<li>Where the contribution should sit: whether a &quot;form versus content decomposition&quot; is enough of a research question, or whether it should go on to training (for example, changing only the form of feedback and seeing whether an entropy bonus is drawn to it).</li>
+</ul>
+<p><strong>What should not be claimed yet:</strong></p>
+<ul>
+<li>That entropy guidance is useless (C has only 10 problems).</li>
+<li>That this contradicts ProCredit.</li>
+<li>Anything about whether void is related to gradient explosion.</li>
+<li>That the source of the <code>Reach</code> string is known.</li>
+</ul>
+<p><strong>Follow-up Analysis Needed:</strong> check whether the string appears in SimpleTIR's training environment; run the same probe on other checkpoints; retest B's H_first and H10 on fp16; add samples per condition to settle the success effects of <code>irrelevant</code> and <code>empty</code>; control the tool-call budget in C and add problems.</p>
+<h2 id="10-reproduction">10. Reproduction</h2>
+<pre><code class="language-bash">cd experiments/smoke
+.venv/bin/python run_exps.py --model models/simpletir7b-4bit --fmt simpletir --tag simpletir7b --stage B --bs 6 --n_sel 15 --n_B 15 --C_B 6   # same for other stages, resumes by jid
+.venv/bin/python analyze.py simpletir7b
+.venv/bin/python posthoc_report.py simpletir7b
+PROBE_CELLS=3,4 PROBE_CHECK=3 .venv/bin/python probe_giveup.py simpletir7b models/simpletir7b-4bit 25
+FID_POST=1 FID_N=12 FID_MAXTOK=2000 .venv/bin/python fidelity.py simpletir7b models/simpletir7b-8bit 8bit_post
+</code></pre>
+<p>Run order: <code>overnight.sh</code>, <code>daytime.sh</code>, <code>evening.sh</code>, <code>final.sh</code>.</p>
+<p><strong>Literature:</strong> <a href="https://arxiv.org/abs/2504.11536">ReTool</a>, <a href="https://arxiv.org/abs/2507.19849">ARPO</a>, <a href="https://arxiv.org/abs/2509.02479">SimpleTIR</a>, <a href="https://arxiv.org/abs/2510.14545">AEPO</a>, <a href="https://arxiv.org/abs/2606.12384">APPO</a>, <a href="https://arxiv.org/abs/2606.03762">TAO-RL</a>, <a href="https://arxiv.org/abs/2609.27532">ProCredit</a>, <a href="https://arxiv.org/abs/2604.08281">ATTC</a>, <a href="https://arxiv.org/abs/2608.06270">Illusion of Visual Tool-Use</a>, <a href="https://arxiv.org/abs/2509.23285">Tool-Light</a>, <a href="https://arxiv.org/abs/2607.14145">ToolAnchor</a>, <a href="https://arxiv.org/abs/2511.10899">Tool-Induced Myopia</a> (abstract only, unverified).</p>
+
+</div>
+</body>
+</html>

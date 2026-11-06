@@ -1,0 +1,43 @@
+outcome,predictor,model,n_states,slope_per_nat,ci_lo,ci_hi
+success,H10,"posttool, problem FE",30,-0.3294,-0.8327,-0.1023
+success,H10,"posttool, problem FE + turn index",30,-0.3134,-0.9624,-0.0596
+success,H10,"posttool, excluding final-turn states",27,-0.305,-1.181,-0.0691
+success,H_first,"posttool, problem FE",30,0.0937,-0.1067,0.6347
+success,H_first,"posttool, problem FE + turn index",30,0.197,-0.0787,0.7651
+success,H_first,"posttool, excluding final-turn states",27,0.6392,-0.2397,1.1035
+valid,H10,"posttool, problem FE",30,-0.3781,-0.9225,-0.058
+valid,H10,"posttool, problem FE + turn index",30,-0.3491,-1.0822,-0.0526
+valid,H10,"posttool, excluding final-turn states",27,-0.2633,-1.1364,-0.0416
+valid,H_first,"posttool, problem FE",30,0.0886,-0.1359,0.6777
+valid,H_first,"posttool, problem FE + turn index",30,0.212,-0.069,0.8202
+valid,H_first,"posttool, excluding final-turn states",27,0.6854,-0.029,1.1077
+void,H10,"posttool, problem FE",30,0.1373,-0.0329,0.5535
+void,H10,"posttool, problem FE + turn index",30,0.1038,-0.0768,0.5776
+void,H10,"posttool, excluding final-turn states",27,0.1425,-0.0368,0.8089
+void,H_first,"posttool, problem FE",30,-0.0606,-0.6508,0.1091
+void,H_first,"posttool, problem FE + turn index",30,-0.1435,-0.6834,0.0644
+void,H_first,"posttool, excluding final-turn states",27,-0.5944,-0.9962,-0.0551
+void_giveup,H10,"posttool, problem FE",30,0.1666,0.0135,0.5606
+void_giveup,H10,"posttool, problem FE + turn index",30,0.181,0.0212,0.6382
+void_giveup,H10,"posttool, excluding final-turn states",27,0.1946,0.0213,0.9613
+void_giveup,H_first,"posttool, problem FE",30,-0.079,-0.6041,0.1157
+void_giveup,H_first,"posttool, problem FE + turn index",30,-0.1177,-0.686,0.1588
+void_giveup,H_first,"posttool, excluding final-turn states",27,-0.5239,-0.9458,0.1081
+void_other,H10,"posttool, problem FE",30,-0.0293,-0.1782,0.0348
+void_other,H10,"posttool, problem FE + turn index",30,-0.0773,-0.2522,0.0204
+void_other,H10,"posttool, excluding final-turn states",27,-0.0521,-0.3577,0.0
+void_other,H_first,"posttool, problem FE",30,0.0183,-0.0975,0.0689
+void_other,H_first,"posttool, problem FE + turn index",30,-0.0259,-0.1846,0.0758
+void_other,H_first,"posttool, excluding final-turn states",27,-0.0705,-0.4023,0.0
+budget,H10,"posttool, problem FE",30,-0.0257,-0.2431,0.1725
+budget,H10,"posttool, problem FE + turn index",30,0.0662,-0.0658,0.2473
+budget,H10,"posttool, excluding final-turn states",27,0.0511,-0.0487,0.3973
+budget,H_first,"posttool, problem FE",30,-0.1047,-0.2015,0.0838
+budget,H_first,"posttool, problem FE + turn index",30,-0.0359,-0.1956,0.1266
+budget,H_first,"posttool, excluding final-turn states",27,0.0039,-0.1459,0.5262
+success,H10,"interaction: slope(post-tool) minus slope(placebo), problem FE",45,-0.2565,-0.4324,0.6245
+valid,H10,"interaction: slope(post-tool) minus slope(placebo), problem FE",45,-0.2563,-0.4163,0.796
+void,H10,"interaction: slope(post-tool) minus slope(placebo), problem FE",45,-0.0627,-1.9886,0.058
+success,H_first,"interaction: slope(post-tool) minus slope(placebo), problem FE",45,-0.0781,-0.2078,1.0026
+valid,H_first,"interaction: slope(post-tool) minus slope(placebo), problem FE",45,-0.0547,-0.1658,1.6722
+void,H_first,"interaction: slope(post-tool) minus slope(placebo), problem FE",45,-0.0964,-1.4054,0.0192

@@ -1,0 +1,7 @@
+,H_first,H10,success,valid,void,void_giveup,n
+,mean,mean,mean,mean,mean,mean,
+prev_tool_kind,,,,,,,
+empty,1.485,0.363,0.0,0.167,0.5,0.25,2
+error,0.029,0.605,0.548,0.548,0.214,0.214,7
+ok,0.459,0.712,0.704,0.713,0.185,0.185,18
+timeout,1.337,1.355,0.167,0.278,0.167,0.111,3

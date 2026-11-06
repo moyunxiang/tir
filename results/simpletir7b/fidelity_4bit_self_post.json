@@ -1,0 +1,125 @@
+{
+ "reference": "4bit_self_post",
+ "n_rollouts": 12,
+ "n_tokens": 7418,
+ "spearman": 0.9749039903444956,
+ "pearson": 0.9997559379839037,
+ "mean_abs_dH": 0.008447555726470353,
+ "median_abs_dH": 5.364141627505967e-05,
+ "p99_abs_dH": 0.07636085615682617,
+ "mean_H_4bit": 0.48260192774332705,
+ "mean_H_ref": 0.482503291637069,
+ "n_posttool_first": 18,
+ "spearman_posttool_first": 0.9979360165118679,
+ "mean_abs_dH_posttool_first": 0.009299332669191064,
+ "giveup_first_token": [
+  {
+   "jid": "calib:math_prealgebra_378:1",
+   "k": 1,
+   "P_ref": 7.121906397955513e-10,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:aime24_01:0",
+   "k": 1,
+   "P_ref": 4.750510740336722e-08,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:aime24_11:3",
+   "k": 1,
+   "P_ref": 7.471262506442145e-05,
+   "P_4bit": 8.46487682994122e-05
+  },
+  {
+   "jid": "calib:math_algebra_733:2",
+   "k": 1,
+   "P_ref": 8.55418491596538e-09,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_algebra_733:2",
+   "k": 2,
+   "P_ref": 8.910427823138889e-06,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_number_theory_737:1",
+   "k": 1,
+   "P_ref": 1.7392271729477216e-06,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_number_theory_737:1",
+   "k": 2,
+   "P_ref": 1.650950480325264e-06,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_number_theory_737:1",
+   "k": 3,
+   "P_ref": 3.516367360134609e-05,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:aime24_10:2",
+   "k": 1,
+   "P_ref": 1.9856659491779283e-05,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:aime24_10:2",
+   "k": 2,
+   "P_ref": 6.746852159267291e-05,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_counting_and_probability_25149:0",
+   "k": 1,
+   "P_ref": 1.035666663540269e-08,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_counting_and_probability_134:3",
+   "k": 1,
+   "P_ref": 5.9371224779170007e-05,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_counting_and_probability_134:3",
+   "k": 2,
+   "P_ref": 1.1709320460795425e-05,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_counting_and_probability_134:3",
+   "k": 3,
+   "P_ref": 0.00011144809104735032,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_intermediate_algebra_955:2",
+   "k": 1,
+   "P_ref": 7.334170959438779e-07,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:aime24_09:1",
+   "k": 1,
+   "P_ref": 8.761691105974023e-08,
+   "P_4bit": 0.0
+  },
+  {
+   "jid": "calib:math_number_theory_72:0",
+   "k": 1,
+   "P_ref": 6.002511327096727e-06,
+   "P_4bit": 1.1050885471981619e-05
+  },
+  {
+   "jid": "calib:math_geometry_1097:3",
+   "k": 1,
+   "P_ref": 7.690467640486531e-08,
+   "P_4bit": 0.0
+  }
+ ]
+}

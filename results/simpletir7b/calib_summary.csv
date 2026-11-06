@@ -1,0 +1,3 @@
+src,n_rollouts,n_problems,success,valid,void_eos,void_trunc,budget,turn_limit,code_err,used_tool,mean_calls,mean_tokens
+aime24,48,12,0.208,0.271,0.167,0.062,0.333,0.167,0.75,0.938,3.146,3106.646
+math,96,24,0.865,0.865,0.052,0.01,0.052,0.021,0.177,1.0,1.698,1400.406

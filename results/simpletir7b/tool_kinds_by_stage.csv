@@ -1,0 +1,5 @@
+stage,tool_calls,ok,error,timeout,empty,timeout_rate
+calib,314,210,69,30,5,0.096
+A,372,242,98,27,5,0.073
+B,983,673,250,40,20,0.041
+C,213,143,47,22,1,0.103

@@ -1,0 +1,6 @@
+arm,n_branches,mean_turn,median_j,first_turn_share,branch_correct
+high_entropy,44,2.295,124.5,0.023,0.295
+low_entropy,25,0.8,325.0,0.56,0.28
+posttool_high,45,2.333,30.0,0.0,0.333
+random,28,1.25,301.0,0.393,0.357
+tool_boundary,44,1.909,0.0,0.0,0.636

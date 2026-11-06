@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Pre-registration</title>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<div class="doc">
+<p class="back"><a href="./">← 返回页面</a></p>
+<h1>Smoke tests: post-tool entropy in tool-integrated reasoning (pre-registration)</h1>
+<p>Written 2026-11-04, before any rollout from a trained checkpoint existed (engine tests used an unrelated 0.5B chat model). Sample sizes in §1 may be reduced after the throughput pilot; hypotheses, metrics, tests and decision rules may not change after that. Any later change is listed in <code>report_*.md</code> under &quot;Deviations&quot;.</p>
+<p><strong>Question.</strong> Is high token entropy right after a tool result useful exploration, or unstable continuation? How do the content and form of tool feedback change that?</p>
+<p><strong>Status of the results.</strong> A smoke test on a laptop: at most about 20 problems, one model family. It can find large effects and rule out a broken design. It cannot establish small effects, and a null means &quot;not detected at this size&quot;.</p>
+<h2 id="1-setup">1. Setup</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Value</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Primary model</td>
+<td><code>ZhenghaiXue/Qwen2.5-7B-SimpleTIR</code> (commit <code>fbe635a</code>)</td>
+<td>Published checkpoint trained with the void-turn filter; official protocol is public</td>
+</tr>
+<tr>
+<td>Replication model (time permitting)</td>
+<td><code>dongguanting/Qwen2.5-7B-ARPO</code></td>
+<td>Trained with entropy-guided branching: the other side of the tension</td>
+</tr>
+<tr>
+<td>Precision</td>
+<td>4-bit MLX quantisation of the published weights</td>
+<td>16 GB laptop, no remote GPU reachable. Fidelity check in §6</td>
+</tr>
+<tr>
+<td>Sampling</td>
+<td>T=1, no top-p/top-k</td>
+<td>The RL rollout distribution. SimpleTIR validation uses top_p=0.7, so success rates will not match its reported figures directly</td>
+</tr>
+<tr>
+<td>Entropy</td>
+<td>Full-vocabulary Shannon entropy in nats at T=1, recorded for every sampled token</td>
+<td>Same definition as ARPO/APPO/ProCredit</td>
+</tr>
+<tr>
+<td>Protocol</td>
+<td>SimpleTIR <code>agent_utils.py</code>: stop after the first complete code block; <code>strip()</code> of the preceding text; <code>\nCode execution result: {stdout}\n</code>; last stderr line on error; 512-char and 256-token limits; 5 s timeout; max 5 turns (training value)</td>
+<td>Same context the policy was trained on</td>
+</tr>
+<tr>
+<td>Limits</td>
+<td>2048 tokens per turn; 4096 per root rollout; 2500 new tokens per continuation (see Deviations)</td>
+<td>Laptop budget; every truncation is recorded and analysed separately</td>
+</tr>
+<tr>
+<td>Problems</td>
+<td>Seeded pool (seed 4212) of 20 AIME 2024 + 40 MATH-500 level 4–5 with integer answers, from the SimpleTIR repo's data files</td>
+<td>Verifiable, hard enough for variance. Integer answers keep grading reliable</td>
+</tr>
+<tr>
+<td>Code execution</td>
+<td><code>sandbox.py</code>: <code>sandbox-exec</code> with no network, no writes outside a temp dir, no reads of <code>$HOME</code>, no subprocesses, scrubbed env, 2 GB RSS limit</td>
+<td>Model-written code on a personal machine</td>
+</tr>
+</tbody>
+</table></div>
+<p>Sizes after the pilot: calibration 36 problems × 4 roots; A 15 problems × (2 post-tool + 1 placebo states) × 6 continuations; B 15 prefixes × 7 conditions × 6 continuations; C 10 problems × 5 arms. Originally planned: 60 × 4; 20 × (3+1) × 8; 20 × 7 × 8; 15 × 5.</p>
+<h2 id="2-problem-selection-fixed-before-seeing-calibration-results">2. Problem selection (fixed before seeing calibration results)</h2>
+<p>From calibration, keep problems with at least one root that made a tool call and continued. Take up to 70% from mixed-outcome problems (0 &lt; success &lt; 1 over the four roots), then alternate all-correct and all-wrong problems. All draws are seeded. This does not condition on any entropy value. Regression to the mean on success is possible and is why roots are never compared with their own continuations as an effect estimate.</p>
+<h2 id="3-experiment-a-entropy-vs-continuation-quality">3. Experiment A: entropy vs continuation quality</h2>
+<p><strong>States.</strong> Post-tool states: context up to and including the tool result. Placebo states: a random position in ordinary reasoning text of the same problem's roots, not inside code and not right after a tool result. Without the placebo a correlation could not be attributed to tools.</p>
+<p><strong>Entropy predictors.</strong></p>
+<ul>
+<li><code>H_first</code>: entropy of the first token after the state. Exact, not sampled, and fixed before any continuation is drawn. <strong>The only predictor that cannot be affected by the continuation's outcome.</strong></li>
+<li><code>H10</code> (primary), <code>H50</code>: mean token entropy over the first 10 / 50 generated tokens, averaged across continuations. These depend on the sampled path, so an association with outcome can be a consequence of the path rather than a cause.</li>
+</ul>
+<p><strong>Outcomes per state.</strong></p>
+<ul>
+<li><code>success</code>: fraction of continuations with the correct boxed answer.</li>
+<li><code>valid</code>: fraction ending in a boxed answer, with no void turn, no truncation, no turn-limit stop.</li>
+<li><code>void</code>: fraction ending in a void turn (SimpleTIR definition: neither a complete code block nor <code>\boxed</code>). <code>void_eos</code> and <code>void_trunc</code> are reported separately.</li>
+<li><code>code_err</code>: fraction with at least one later tool error.</li>
+<li><code>pass@k</code> for k=1,2,4,8: exact hypergeometric chance that k draws without replacement from the C continuations include a correct one.</li>
+<li><code>answer_div</code>: exp(Shannon entropy) of the answer distribution among valid continuations.</li>
+<li><code>strategy_div</code>: exp(Shannon entropy) of a code signature among valid continuations. Signature = sorted set of imported modules, called function names, and control keywords (<code>for</code>, <code>while</code>, <code>if</code>) in the first code block after the state; no code = its own class. <strong>A proxy for strategy, not a judgement of it.</strong></li>
+<li><code>outcome_unc</code>: binary entropy of <code>success</code>, i.e. how much the branch outcome depends on the sample (APPO's notion).</li>
+</ul>
+<p><strong>Tests.</strong> State-level, within-problem Spearman (values demeaned within problem), p by 10,000 within-problem permutations, 95% CI by problem-cluster bootstrap, Benjamini–Hochberg across the primary family (H10 × {success, valid, void, answer_div, strategy_div, outcome_unc}). Same for the placebo states, and the post-tool minus placebo difference with a cluster-bootstrap CI.</p>
+<p><strong>Taxonomy (descriptive).</strong> Among states in the top entropy tercile (<code>H10</code>, within the whole sample): <em>productive</em> = valid ≥ 0.75, success &gt; 0, and answer_div or strategy_div ≥ 1.5; <em>degenerate</em> = valid &lt; 0.75; <em>lexical</em> = valid ≥ 0.75, answer_div &lt; 1.5, strategy_div &lt; 1.5; <em>misled</em> = valid ≥ 0.75, success = 0, diverse. Thresholds fixed here.</p>
+<p><strong>Reading.</strong></p>
+<ul>
+<li>Evidence for &quot;entropy marks useful exploration&quot;: H10 positively related to pass@8 or diversity, without a drop in <code>valid</code>.</li>
+<li>Evidence for &quot;entropy marks instability&quot;: H10 negatively related to <code>valid</code> / positively to <code>void</code>.</li>
+<li>Both can hold at once; the taxonomy is what separates them.</li>
+<li>A correlation only counts as tool-specific if the CI of the post-tool minus placebo difference excludes 0.</li>
+</ul>
+<h2 id="4-experiment-b-tool-feedback-intervention-the-causal-arm">4. Experiment B: tool feedback intervention (the causal arm)</h2>
+<p><strong>Prefix.</strong> One per problem: the first root whose first code turn ran with non-empty stdout of at most 200 characters containing a digit and no <code>\boxed</code>. Selected on the tool result only, never on the outcome. Same prefix across all conditions, same seed list.</p>
+<p><strong>Conditions.</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Text after the code block</th>
+<th>What changes relative to <code>normal</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>normal</code></td>
+<td>real stdout in the official format</td>
+<td>reference</td>
+</tr>
+<tr>
+<td><code>perturbed</code></td>
+<td>digits changed, same format and length, gold value excluded</td>
+<td>content only (wrong value)</td>
+</tr>
+<tr>
+<td><code>irrelevant</code></td>
+<td>stdout of a different problem's prefix</td>
+<td>content only (unrelated)</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td><code>ZeroDivisionError: division by zero</code> in the official format</td>
+<td>execution failed, no information</td>
+</tr>
+<tr>
+<td><code>verbose</code></td>
+<td>same stdout wrapped in sandbox log lines, under the 512-char limit</td>
+<td>length and structure, same information</td>
+</tr>
+<tr>
+<td><code>text_only</code></td>
+<td><code>\nThis gives: {stdout}\n</code></td>
+<td>form only (not marked as a tool result)</td>
+</tr>
+<tr>
+<td><code>empty</code></td>
+<td><code>\nCode execution result: \n</code></td>
+<td>no information; real output for code that prints nothing</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>error_name</code> and <code>timeout</code> are measured at the first token only (no sampling).</p>
+<p><strong>Outcomes.</strong> <code>H_first</code> and JS divergence from <code>normal</code> at the first token (both exact), <code>H10</code>, <code>H50</code>, valid, void, success, code_err, extra tool calls, plus: <code>adopt</code> (final answer contains a number from the injected payload) and <code>retry</code> (model calls a tool again).</p>
+<p><strong>Tests.</strong> Paired by prefix: each condition minus <code>normal</code>. Wilcoxon signed-rank, Holm across the six conditions within each outcome; 95% CI by bootstrap over prefixes. A condition's effect is called <em>detected</em> only when Holm-adjusted p &lt; 0.05 and the CI excludes 0.</p>
+<p><strong>Key contrast.</strong> <em>Dissociation</em>: two conditions with similar H10 (|difference| &lt; 0.1 nats) but <code>valid</code> or <code>success</code> differing by more than 0.2 with a CI excluding 0; or a condition that raises entropy without lowering quality alongside one that raises it and lowers quality. Either would show entropy does not by itself determine continuation quality. The absence of any dissociation would count against the idea.</p>
+<p><strong>Length confound.</strong> <code>verbose</code> changes length by design, and the other conditions differ by a few tokens. Observation length is reported per condition. <code>perturbed</code> and <code>irrelevant</code> are the clean content contrasts; <code>text_only</code> is the clean form contrast.</p>
+<h2 id="5-experiments-c-and-d">5. Experiments C and D</h2>
+<p><strong>C: branching at inference time.</strong> For each problem, every arm starts from the same two roots (the first two calibration rollouts) and has the same budget: tokens = 3 × mean root tokens (clamped to 600–3000), tool calls = 3 × mean root calls (at least 3). Arms choose where to resample: <code>random</code> token, <code>tool_boundary</code> (first token after a tool result), <code>high_entropy</code> (highest entropy over all policy tokens), <code>low_entropy</code> (lowest), and <code>posttool_high</code> (highest within 50 tokens after a tool result, closest to ARPO). A minimum spacing of 8 tokens avoids spending the budget on adjacent positions. A branch that crosses the budget is cut off and counts as spent.</p>
+<p>Primary: <code>pass@budget</code> (any leaf correct, including the roots), on all problems and on the <em>rescue</em> subset where both roots failed. Secondary: valid rate of branches, distinct valid answers, correct branches per 1,000 tokens. Each arm versus <code>random</code>, paired by problem, exact sign test; with 15 problems only a large effect could be detected, so results are descriptive unless the test passes.</p>
+<p><strong>D: void-turn audit, no new generation.</strong> All rollouts from calibration, A, B and C. Per turn following a tool result: void hazard by tercile of <code>H_first</code>; <code>H_first</code> and <code>H10</code> for void versus non-void continuations from the <em>same state</em> (paired, removes state effects); trajectory classes (correct / wrong answer / void_eos / void_trunc / turn limit) compared by entropy, surprisal and the per-token logit-gradient proxy. The proxy is sqrt(1 − 2p_a + Σp²); it measures sensitivity of log p(a) to logits. <strong>No training gradient is computed, so no statement about gradient explosion can follow from D.</strong> With fewer than 20 void events, D is descriptive only. Void events caused by the laptop token limit (<code>void_trunc</code>) are reported separately so a limit artefact is not mistaken for a model failure.</p>
+<h2 id="6-gates-and-fidelity">6. Gates and fidelity</h2>
+<ul>
+<li>Sandbox self-test (<code>sandbox.py</code>) and engine test (<code>test_engine.py</code>) must pass.</li>
+<li><strong>Protocol gate (after pilot):</strong> at least half the rollouts call the tool, and tool results are visibly used. If not, stop and inspect the format before spending the night.</li>
+<li><strong>Fidelity:</strong> 4-bit versus published fp16 weights on real rollouts, by position. Report Spearman and mean |ΔH|. If Spearman &lt; 0.9, all entropy results are labelled as properties of the quantised model only.</li>
+<li><strong>Novelty.</strong> <code>notes/smoke_novelty.md</code> lists overlap with APPO, AEPO, ProCredit, TAO-RL and tool-trust papers.</li>
+</ul>
+<h2 id="7-deviations-made-after-the-pilot-and-before-any-main-run-data">7. Deviations made after the pilot and before any main-run data</h2>
+<p>The pilot (5 problems × 4 roots, <code>runs/simpletir7b/pilot.jsonl</code>) is used for protocol checks only and is excluded from every analysis.</p>
+<ol>
+<li><strong>Token limits raised</strong> from 1024 per turn / 2500 per rollout to 2048 / 4096 for roots (2500 new tokens for continuations). In the pilot 5 of 20 rollouts ended as <code>void_trunc</code> and 4 as <code>budget</code>. Their tails were ordinary reasoning or code cut mid-line with no repetition, so the 1024 limit was creating false void turns.</li>
+<li><strong>Sizes reduced</strong> as allowed above: measured throughput is about 40 tokens/s, and rollouts are longer than assumed (mean 1195 tokens under the old limits).</li>
+<li><strong>Fidelity reference</strong> is 8-bit, not fp16: the machine already had 19 GB of swap in use and fp16 needs about 14 GB. So §6 measures sensitivity to quantisation level, not distance from the published weights.</li>
+</ol>
+<p>Hypotheses, metrics, tests and decision rules are unchanged.</p>
+<h2 id="8-causal-language">8. Causal language</h2>
+<p>Only B randomises anything about the tool result, and only with respect to the injected text. A, C and D are observational or conditional on sampled paths. Reports must keep &quot;observed&quot;, &quot;hypothesis&quot; and &quot;unverified explanation&quot; apart.</p>
+
+</div>
+</body>
+</html>

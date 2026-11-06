@@ -1,0 +1,13 @@
+calls,variant,n,n_problems,mean_P_reach,median_P_reach,frac_P_gt_half,mean_H_first
+1,no_suffix,25,19,0.0,0.0,0.0,0.0999
+1,suffix,25,19,0.0009,0.0001,0.0,0.3437
+1,suffix_blank_result,25,19,0.0001,0.0,0.0,0.835
+2,no_suffix,25,15,0.0001,0.0,0.0,0.447
+2,suffix,25,15,0.1687,0.0605,0.16,0.9317
+2,suffix_blank_result,25,15,0.0003,0.0001,0.0,1.4329
+3,no_suffix,25,15,0.0002,0.0001,0.0,0.571
+3,suffix,25,15,0.3545,0.2312,0.28,0.776
+3,suffix_blank_result,25,15,0.0008,0.0003,0.0,1.7412
+4,no_suffix,25,9,0.0007,0.0001,0.0,0.642
+4,suffix,25,9,0.4042,0.1156,0.4,0.978
+4,suffix_blank_result,25,9,0.0037,0.0008,0.0,1.9128

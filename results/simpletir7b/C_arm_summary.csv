@@ -1,0 +1,6 @@
+arm,n_problems,pass_budget,branch_any_correct,branch_acc,branch_valid,branch_void,n_branches,tokens,calls,distinct_valid_answers,correct_per_1k,mean_H_at,first_differs,n_rescue_problems,rescue_rate
+high_entropy,10,0.9,0.6,0.26,0.31,0.27,4.4,2957.0,4.1,0.6,0.444,3.706,0.936,2,0.5
+low_entropy,10,0.9,0.6,0.283,0.283,0.183,2.5,2990.2,5.0,0.6,0.235,0.0,0.0,2,0.5
+posttool_high,10,0.9,0.7,0.262,0.279,0.303,4.5,2964.4,4.4,0.8,0.504,3.036,0.867,2,0.5
+random,10,0.9,0.5,0.3,0.3,0.342,2.8,2981.1,4.8,0.5,0.336,0.136,0.108,2,0.5
+tool_boundary,10,0.9,0.9,0.572,0.572,0.122,4.4,2999.2,3.0,0.9,0.934,0.439,0.289,2,0.5

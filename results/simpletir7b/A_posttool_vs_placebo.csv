@@ -1,0 +1,8 @@
+outcome,rho_posttool,rho_placebo,diff,ci_lo,ci_hi
+success,-0.4465,,,,
+valid,-0.3936,,,,
+void,0.235,,,,
+answer_div,0.426,,,,
+strategy_div,0.3944,,,,
+outcome_unc,-0.2856,,,,
+pass@6,-0.3729,,,,

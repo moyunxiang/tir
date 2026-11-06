@@ -1,0 +1,5 @@
+stage,answer,budget,turn_limit,void_eos,void_trunc,total
+A,157,28,32,53,0,270
+B,375,110,27,108,10,630
+C,77,41,26,42,0,186
+calib,96,21,10,13,4,144

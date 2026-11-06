@@ -1,0 +1,10 @@
+{
+ "n_turns_calls_1to3": 2123,
+ "n_void_other_calls_1to3": 25,
+ "n_giveup_all": 199,
+ "n_giveup_at_4_calls": 193,
+ "H_first_void_other": 0.744344,
+ "H_first_others": 0.39672454718779787,
+ "H10_void_other": 0.9021908000000001,
+ "H10_others": 0.8108211868446139
+}

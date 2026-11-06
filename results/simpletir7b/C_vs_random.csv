@@ -1,0 +1,5 @@
+arm,metric,n,arm_better,random_better,sign_p,branch_acc_diff
+high_entropy,branch_any_correct,10,4,3,1.0,-0.0405
+low_entropy,branch_any_correct,10,3,2,1.0,-0.0167
+posttool_high,branch_any_correct,10,2,0,0.5,-0.0375
+tool_boundary,branch_any_correct,10,5,1,0.2188,0.2717

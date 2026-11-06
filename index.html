@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>工具反馈后的高熵</title>
+<meta name="description" content="四组 smoke test：工具反馈后的高熵，是有价值的探索，还是无效的续写。">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<nav class="top" aria-label="章节">
+  <div class="top-in">
+    <a href="#answer">结论</a>
+    <a href="#context">背景</a>
+    <a href="#design">设计</a>
+    <a href="#b">B 干预</a>
+    <a href="#d">D void</a>
+    <a href="#a">A 相关</a>
+    <a href="#c">C 分支</a>
+    <a href="#limits">局限</a>
+    <a href="#novelty">新颖性</a>
+    <a href="#discuss">讨论</a>
+    <span class="spacer"></span>
+    <a href="report_zh.html" class="plain">完整报告</a>
+    <button id="theme" type="button" aria-label="切换深色或浅色">深浅</button>
+  </div>
+</nav>
+
+<main>
+<section id="answer" class="hero">
+  <p class="eyebrow">TIR-RL · 四组 smoke test · Yunxiang (Kevin) Mo · 2026-11-06</p>
+  <h1>工具反馈后的高熵，<br>是探索还是无效续写？</h1>
+  <p class="answer">在这个模型和规模上，<strong>工具反馈后的高熵本身，既不能说明是有价值的探索，也不能说明是不稳定的续写。</strong></p>
+
+  <ol class="findings">
+    <li>
+      <span class="tag obs">观察</span>
+      <h3>改形式：熵上升，质量未检出变化</h3>
+      <p><code>verbose</code> 的 H10 +.250（Holm .027），成功率 +.033（Holm .747）。</p>
+    </li>
+    <li>
+      <span class="tag obs">观察</span>
+      <h3>改内容：质量下降，H10 变化未检出</h3>
+      <p><code>perturbed</code> 的成功率 −.333（Holm .030），H10 +.099（Holm .096）。</p>
+    </li>
+    <li>
+      <span class="tag obs">观察</span>
+      <h3>void 几乎是一个固定字符串</h3>
+      <p>216 个 <code>void_eos</code> 中有 199 个（92.1%）是 <code>Reach max function call limit.</code></p>
+    </li>
+  </ol>
+
+  <p class="scope"><strong>适用范围：</strong>笔记本上的 smoke test，一个模型、4-bit 量化、最多 36 道题，只看推理，没有训练。它能发现大效应和设计错误，不能确立小效应。“未检出”只表示在这个规模下没有检出。</p>
+  <p class="legend-tags"><span class="tag obs">观察</span> 由真实运行直接算出 <span class="tag hyp">假设</span> 尚未检验的解释 <span class="tag unv">未验证</span> 目前没有数据支持或否定</p>
+</section>
+
+<section id="context">
+  <p class="eyebrow">背景</p>
+  <h2>工具返回后熵确实上升，问题是它代表什么</h2>
+  <div class="split">
+    <div>
+      <p>ARPO、AEPO、TAO-RL 这类方法把工具后的高熵当作探索信号，用来选分支点、分配预算或给奖励。例如 TAO-RL 默认高熵的工具后 token 值得奖励，没有单独检验这个前提。</p>
+      <p>高熵可能是模型在认真考虑不同路线，也可能只是工具输出的格式让它不确定。单看熵值，无法区分这两种情况。</p>
+      <div class="tiles">
+        <div class="tile"><span class="tile-l">第一轮 H10</span><span class="tile-v">.176</span><span class="tile-s">[.154, .198]</span></div>
+        <div class="tile"><span class="tile-l">工具后 H10（调用 1–3 次）</span><span class="tile-v">.685</span><span class="tile-s">[.559, .818]</span></div>
+      </div>
+      <p class="note"><span class="tag obs">观察</span> 这里复现了 ARPO 报告的熵上升。</p>
+    </div>
+    <figure>
+      <figcaption><strong>轮内各位置的平均熵（nats）</strong>，只含真正从轮首开始的轮</figcaption>
+      <div class="chart" id="c-profile" role="img" aria-label="折线图：工具结果后的轮，平均熵明显高于第一轮"></div>
+      <p class="src">来源：<a href="results/simpletir7b/entropy_profile.csv">entropy_profile.csv</a>，<a href="results/simpletir7b/entropy_profile_first_turn.csv">entropy_profile_first_turn.csv</a>，<a href="results/simpletir7b/D_arpo_entropy_rise.csv">D_arpo_entropy_rise.csv</a></p>
+      <details class="twin"><summary>查看数据表（抽样位置）</summary><div class="tw"><table><thead><tr><th class="n">位置</th><th class="n">工具结果之后</th><th class="n">n</th><th class="n">第一轮</th><th class="n">n</th></tr></thead><tbody><tr><td class="n">0</td><td class="n">.470</td><td class="n">2641</td><td class="n">.018</td><td class="n">144</td></tr><tr><td class="n">1</td><td class="n">.805</td><td class="n">2640</td><td class="n">.362</td><td class="n">144</td></tr><tr><td class="n">2</td><td class="n">1.017</td><td class="n">2640</td><td class="n">.302</td><td class="n">144</td></tr><tr><td class="n">5</td><td class="n">.763</td><td class="n">2640</td><td class="n">.093</td><td class="n">144</td></tr><tr><td class="n">10</td><td class="n">.881</td><td class="n">2438</td><td class="n">.231</td><td class="n">144</td></tr><tr><td class="n">25</td><td class="n">.928</td><td class="n">2428</td><td class="n">.152</td><td class="n">144</td></tr><tr><td class="n">50</td><td class="n">.826</td><td class="n">2379</td><td class="n">.194</td><td class="n">144</td></tr><tr><td class="n">75</td><td class="n">.708</td><td class="n">2301</td><td class="n">.192</td><td class="n">144</td></tr><tr><td class="n">99</td><td class="n">.596</td><td class="n">2252</td><td class="n">.142</td><td class="n">144</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>位置</td><td>轮内第几个生成 token</td><td>从 0 计数，只含从轮首开始的轮</td><td>整数</td><td>轮内位置</td><td><code>analyze.py</code></td></tr><tr><td>工具结果之后 / 第一轮</td><td>该位置的平均熵</td><td>所有轮直接平均；CI not computed</td><td>nats</td><td>熵随位置的变化</td><td><code>entropy_profile*.csv</code></td></tr><tr><td>n</td><td>该位置的 token 数</td><td>计数</td><td>整数</td><td>样本量</td><td>同上</td></tr></tbody></table></div></details></details>
+    </figure>
+  </div>
+  <dl class="terms">
+    <div><dt>熵</dt><dd>下一个 token 在全词表上的 Shannon 熵，单位 nats，T=1，无 top-p。</dd></div>
+    <div><dt>H_first</dt><dd>工具结果后第一个 token 的熵。精确值，不依赖采样。</dd></div>
+    <div><dt>H10</dt><dd>前 10 个生成 token 的平均熵。依赖采样路径，不能作因果解读。</dd></div>
+    <div><dt>void turn</dt><dd>最后一轮既没有代码块也没有 boxed 答案，并以 EOS 结束（<code>void_eos</code>）。</dd></div>
+  </dl>
+</section>
+
+<section id="design">
+  <p class="eyebrow">设计</p>
+  <h2>四组实验，分别回答一个问题</h2>
+  <div class="tw"><table><thead><tr><th>实验</th><th>问题</th><th>做法</th><th>规模</th></tr></thead><tbody><tr><td><b>A</b></td><td>高熵状态的续写质量是否更差？</td><td>取工具后状态和普通文本位置（placebo），每个状态 6 条续写，观察性</td><td>15 题，30 + 15 个状态，270 条</td></tr><tr><td><b>B</b></td><td>改工具反馈，熵和质量分别怎么变？</td><td>同一前缀、同一种子列表，只替换工具结果，直接干预</td><td>15 前缀 × 7 条件 × 6 = 630 条</td></tr><tr><td><b>C</b></td><td>按熵选分支点比随机好吗？</td><td>共用两条根轨迹，相同预算，比较 5 种选位策略</td><td>10 题，186 条分支</td></tr><tr><td><b>D</b></td><td>void turn 到底是什么？</td><td>审计以上全部轨迹，事后加单 token 探针</td><td>校准 144 条 + 上述轨迹；探针每格 25 个状态</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>实验</td><td>四组实验的编号</td><td>人工分组</td><td>A–D</td><td>范围</td><td><code>PREREG.md</code></td></tr><tr><td>问题</td><td>这组实验要回答什么</td><td>人工说明，非测量</td><td>文本</td><td>实验目的</td><td>同上</td></tr><tr><td>做法</td><td>实验的设计</td><td>人工概括</td><td>文本</td><td>如何得到结果</td><td><code>PREREG.md</code>，<code>run_exps.py</code></td></tr><tr><td>规模</td><td>实际运行的样本量</td><td>计数，来自运行记录</td><td>条 / 题 / 状态</td><td>可检测效应的上限</td><td><code>config_*.json</code>，<code>runs/</code></td></tr></tbody></table></div></details>
+  <p class="config"><strong>配置：</strong><code>ZhenghaiXue/Qwen2.5-7B-SimpleTIR</code>（commit <code>fbe635a</code>），4-bit MLX，M1 Pro 16GB。协议复现 SimpleTIR 的 <code>agent_utils.py</code>，包括最多 5 轮和最后一轮追加的 <code>\n</code>。规则在任何真实 rollout 之前提交（<a href="prereg.html">预注册</a>，commit <code>ca8d6c8</code>），之后的偏离都列在<a href="report_zh.html#8-deviations">报告 §8</a>。</p>
+</section>
+
+<section id="b">
+  <p class="eyebrow">实验 B · 干预 · 15 个前缀</p>
+  <h2>熵和质量可以分开变动</h2>
+  <p class="lead">同一前缀、同一种子列表，只替换工具结果，每个条件 6 条续写。和 A 不同，这里直接干预工具反馈，而不是观察它。</p>
+
+  <figure class="wide">
+    <figcaption><strong>相对 <code>normal</code> 的配对差值，95% CI。</strong><span class="key"><span class="k-dot on"></span>检出（Holm p&lt;.05 且 CI 不含 0）<span class="k-dot"></span>未检出</span></figcaption>
+    <div class="panels">
+      <div><h4>H10 差值（nats）</h4><div class="chart" id="c-forest-h" role="img" aria-label="各条件相对 normal 的 H10 差值及置信区间"></div></div>
+      <div><h4>成功率差值</h4><div class="chart" id="c-forest-s" role="img" aria-label="各条件相对 normal 的成功率差值及置信区间"></div></div>
+    </div>
+    <p class="src">来源：<a href="results/simpletir7b/B_effects.csv">B_effects.csv</a>，<a href="results/simpletir7b/B_first_token_effects.csv">B_first_token_effects.csv</a>，<a href="results/simpletir7b/B_condition_means.csv">B_condition_means.csv</a></p>
+    <details class="twin"><summary>查看完整差值表（含 H_first、有效率、void）</summary><p>格式为 差值 [95% CI], Holm p。粗体表示按预注册规则检出。</p><div class="tw"><table><thead><tr><th>条件</th><th>H_first（精确）</th><th>H10</th><th>有效率</th><th>void</th><th>成功率</th></tr></thead><tbody><tr><td><code>verbose</code></td><td><b>+.704 [.385, 1.043], .016</b></td><td><b>+.250 [.093, .452], .027</b></td><td>+.044 [−.067, .156], .977</td><td>.000 [−.078, .089], 1.000</td><td>+.033 [−.067, .133], .747</td></tr><tr><td><code>text_only</code></td><td><b>+.333 [.136, .583], .003</b></td><td><b>+.162 [.102, .236], .002</b></td><td>−.022 [−.089, .044], .977</td><td>+.056 [.000, .122], .228</td><td>−.033 [−.100, .022], .747</td></tr><tr><td><code>perturbed</code></td><td>−.040 [−.154, .085], .454</td><td>+.099 [.014, .183], .096</td><td><b>−.256 [−.378, −.133], .031</b></td><td>+.133 [.011, .256], .228</td><td><b>−.333 [−.500, −.178], .030</b></td></tr><tr><td><code>irrelevant</code></td><td>−.084 [−.299, .158], .303</td><td><b>+.174 [.063, .293], .031</b></td><td>−.156 [−.322, −.000], .398</td><td>+.178 [.067, .289], .074</td><td>−.178 [−.356, −.022], .312</td></tr><tr><td><code>error</code></td><td><b>−.206 [−.343, −.086], .016</b></td><td>−.000 [−.114, .122], .934</td><td>−.111 [−.245, .011], .459</td><td>+.133 [.022, .244], .226</td><td>−.089 [−.211, .011], .747</td></tr><tr><td><code>empty</code></td><td><b>+.465 [.196, .757], .022</b></td><td><b>−.308 [−.483, −.144], .013</b></td><td>−.078 [−.222, .044], .977</td><td>+.033 [−.078, .144], 1.000</td><td>−.167 [−.344, −.011], .370</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>条件</td><td>与 <code>normal</code> 比较的条件</td><td>按前缀配对，n=15</td><td>类别</td><td>干预</td><td><code>B_effects.csv</code></td></tr><tr><td>H_first（精确）</td><td>第一个 token 的熵之差</td><td>精确分布，不采样；只对 4-bit 模型成立</td><td>nats</td><td>反馈的即时影响</td><td><code>B_first_token_effects.csv</code></td></tr><tr><td>H10</td><td>前 10 个 token 平均熵之差</td><td>配对差值；依赖路径</td><td>nats</td><td>短程熵的变化</td><td><code>B_effects.csv</code></td></tr><tr><td>有效率 / void / 成功率</td><td>比例之差</td><td>配对差值</td><td>−1 到 1</td><td>质量变化</td><td>同上</td></tr><tr><td>CI / Holm p</td><td>95% CI 与校正后 p</td><td>前缀 bootstrap；Wilcoxon，同一结局内 Holm 校正 6 个条件，不跨结局</td><td>同差值；0–1</td><td>不确定性和显著性</td><td>同上</td></tr></tbody></table></div></details></details>
+  </figure>
+
+  <div class="split even">
+    <div>
+      <h3>预注册的解离判据成立</h3>
+      <p class="callout"><code>perturbed</code> 对 <code>text_only</code>：H10 只差 .063，成功率差 .300（95% CI −.433 到 −.167）。</p>
+      <p>判据是 abs(ΔH10)&lt;0.1、结局差大于 0.2、CI 不含 0。42 组比较中有 6 组满足（未做多重比较校正），其中两组压在 0.1 附近，不应作为主要证据。</p>
+      <details class="twin"><summary>查看 6 组解离</summary><div class="tw"><table><thead><tr><th>解离对</th><th>结局</th><th class="n">ΔH10</th><th class="n">Δ结局</th><th>95% CI</th><th class="n">p（未校正）</th></tr></thead><tbody><tr><td><code>perturbed</code> − <code>text_only</code></td><td>成功率</td><td class="n">−.063</td><td class="n">−.300</td><td>−.433, −.167</td><td class="n">.005</td></tr><tr><td><code>perturbed</code> − <code>text_only</code></td><td>有效率</td><td class="n">−.063</td><td class="n">−.233</td><td>−.356, −.111</td><td class="n">.006</td></tr><tr><td><code>irrelevant</code> − <code>verbose</code></td><td>成功率</td><td class="n">−.076</td><td class="n">−.211</td><td>−.378, −.067</td><td class="n">.020</td></tr><tr><td><code>error</code> − <code>perturbed</code></td><td>成功率</td><td class="n">−.099</td><td class="n">+.244</td><td>.111, .400</td><td class="n">.017</td></tr><tr><td><code>normal</code> − <code>perturbed</code></td><td>成功率</td><td class="n">−.099</td><td class="n">+.333</td><td>.178, .489</td><td class="n">.005</td></tr><tr><td><code>normal</code> − <code>perturbed</code></td><td>有效率</td><td class="n">−.099</td><td class="n">+.256</td><td>.133, .378</td><td class="n">.005</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>解离对</td><td>满足预注册判据的条件对</td><td>abs(ΔH10)&lt;0.1 且结局差&gt;0.2 且 CI 不含 0</td><td>类别</td><td>熵相近但质量不同</td><td><code>B_dissociation.csv</code></td></tr><tr><td>ΔH10 / Δ结局</td><td>两条件之差</td><td>配对差值；未干预 H10 本身</td><td>nats；−1 到 1</td><td>熵的接近程度和质量差</td><td>同上</td></tr><tr><td>95% CI / p</td><td>前缀 bootstrap；Wilcoxon</td><td>42 组比较未校正</td><td>−1 到 1；0–1</td><td>单项强度</td><td>同上</td></tr></tbody></table></div></details></details>
+      <p class="note"><span class="tag obs">观察</span> B 干预的是反馈，不是熵本身。只有“反馈 → 结局”的效应是因果估计，不能说熵导致了任何结果。</p>
+      <p class="note"><span class="tag hyp">假设</span> 高熵至少混合了两种来源：形式带来的不确定性，和内容与上下文冲突带来的不确定性。按熵给奖励或选分支，可能会奖励和内容无关的格式变化。这里只测了续写，没有训练。</p>
+    </div>
+    <div>
+      <h3>同一前缀的例子（答案是 63）</h3>
+      <div class="tw"><table><thead><tr><th>条件</th><th>工具结果</th><th class="n">H_first</th><th>续写</th><th><span class="nw">结果</span></th></tr></thead><tbody><tr><td><code>normal</code></td><td><code>63</code></td><td class="n">.141</td><td><code>\boxed{63}</code></td><td><span class="nw">正确</span></td></tr><tr class="hl"><td><code>perturbed</code></td><td><code>39</code></td><td class="n">.035</td><td><code>\boxed{39}</code>，并写“已通过代码验证”</td><td><span class="nw">错误</span></td></tr><tr><td><code>error</code></td><td><code>ZeroDivisionError</code></td><td class="n">.002</td><td>说明出错，重写循环</td><td><span class="nw">正确</span></td></tr><tr><td><code>verbose</code></td><td><code>63</code> + 沙箱日志</td><td class="n">1.304</td><td><code>\boxed{63}</code></td><td><span class="nw">正确</span></td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>条件</td><td>注入的反馈</td><td>同一前缀替换工具结果</td><td>类别</td><td>干预</td><td><code>case_studies.md</code></td></tr><tr><td>工具结果</td><td>模型看到的观察</td><td>原文缩写</td><td>文本</td><td>输入</td><td>同上</td></tr><tr><td>H_first</td><td>工具结果后首 token 的熵</td><td>精确值</td><td>nats</td><td>即时不确定性</td><td>同上</td></tr><tr><td>续写 / 结果</td><td>一条续写的概括和对错</td><td>人工概括，判分来自 <code>grader.py</code></td><td>文本</td><td>输出</td><td>同上</td></tr></tbody></table></div></details>
+      <p class="note">由脚本按规则选出：<code>normal</code> 到 <code>perturbed</code> 成功率下降最大的前缀（1.00 到 0.00）。<code>perturbed</code> 的首 token 熵很低，模型照样采信了错误数字；<code>verbose</code> 的首 token 熵最高，答案仍然正确。这是单个前缀，用来说明现象，不是统计结果。</p>
+    </div>
+  </div>
+</section>
+
+<section id="d">
+  <p class="eyebrow">实验 D + 事后探针</p>
+  <h2>void 几乎是一个固定字符串，而且对一个换行符敏感</h2>
+  <div class="split">
+    <div>
+      <p class="lead">216 个 <code>void_eos</code> 中有 199 个（92.1%）的最后一轮就是 <code>Reach max function call limit.</code>，其中 193 个出现在已调用 4 次工具之后。</p>
+      <p>于是加了一个事后探针：取真实轨迹的状态，只改工具结果后的文本，直接算下一个 token 是 <code>Reach</code> 的概率。协议只在最后一轮多加一个 <code>\n</code>。</p>
+      <div class="tiles three">
+        <div class="tile"><span class="tile-l">不加后缀</span><span class="tile-v">.0007</span></div>
+        <div class="tile strong"><span class="tile-l">加 <code>\n</code></span><span class="tile-v">.4042</span><span class="tile-s">[.278, .512]</span></div>
+        <div class="tile"><span class="tile-l">加 <code>\n</code>，结果置空</span><span class="tile-v">.0037</span></div>
+      </div>
+      <p class="tile-cap">已调用 4 次时的平均 P(<code>Reach</code>)，25 个状态，9 道题。只看第一个 token，只有同时有 <code>\n</code> 和非空工具结果时，这个概率才高。</p>
+    </div>
+    <figure>
+      <figcaption><strong>平均 P(<code>Reach</code>)，按已调用次数。</strong>蓝线的竖线是 95% CI</figcaption>
+      <div class="chart" id="c-probe" role="img" aria-label="折线图：加换行后缀时 P(Reach) 随调用次数上升到约 0.40，另外两种情况接近 0"></div>
+      <p class="src">来源：<a href="results/simpletir7b/probe_giveup_ci.csv">probe_giveup_ci.csv</a>。真实协议只在最后一轮加 <code>\n</code>，调用 1–3 次时加后缀是反事实。</p>
+      <details class="twin"><summary>查看数据表</summary><div class="tw"><table><thead><tr><th class="n">已调用</th><th class="n">题目</th><th class="n">不加后缀</th><th class="n">加 <code>\n</code></th><th class="n">加 <code>\n</code>，结果置空</th><th class="n">加 <code>\n</code> 的中位数</th><th class="n">加 <code>\n</code> 时 P&gt;.5</th></tr></thead><tbody><tr><td class="n">1</td><td class="n">19</td><td class="n">.0000</td><td class="n">.0009 [.0003, .0015]</td><td class="n">.0001</td><td class="n">.0001</td><td class="n">.00</td></tr><tr><td class="n">2</td><td class="n">15</td><td class="n">.0001</td><td class="n">.1687 [.0637, .3036]</td><td class="n">.0003</td><td class="n">.0605</td><td class="n">.16</td></tr><tr><td class="n">3</td><td class="n">15</td><td class="n">.0002</td><td class="n">.3545 [.2072, .5305]</td><td class="n">.0008</td><td class="n">.2312</td><td class="n">.28</td></tr><tr><td class="n">4</td><td class="n">9</td><td class="n">.0007</td><td class="n">.4042 [.2784, .5117]</td><td class="n">.0037</td><td class="n">.1156</td><td class="n">.40</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>已调用</td><td>上下文中的工具调用数</td><td>从校准和 A 的真实轨迹中选状态，每题最多 4 个</td><td>1–4</td><td>调用历史</td><td><code>probe_giveup.csv</code></td></tr><tr><td>题目</td><td>这一格的题目数</td><td>计数</td><td>整数</td><td>聚类数</td><td><code>probe_giveup_ci.csv</code></td></tr><tr><td>不加后缀 / 加 \n / 结果置空</td><td>三种观察下的平均 P(<code>Reach</code>)</td><td>精确概率，不采样；CI 为题目聚类 bootstrap</td><td>0–1</td><td>触发条件</td><td>同上</td></tr><tr><td>中位数 / P&gt;.5</td><td>加 \n 时的状态级分布</td><td>中位数；P&gt;.5 的状态比例</td><td>0–1</td><td>分布两极化</td><td>同上</td></tr></tbody></table></div></details></details>
+    </figure>
+  </div>
+  <div class="split even tight">
+    <div>
+      <h3>对读熵有什么影响</h3>
+      <p><span class="tag obs">观察</span> 同一状态下，void 和非 void 续写的 H10 差值 −.047（CI −.125 到 .020，n=75 个状态），没有检出差异。</p>
+      <p><span class="tag obs">观察</span> 一个校准轨迹里，<code>Reach</code> 的概率约 .987，H_first 只有 .073。这个 void 是低熵的，看不出是不确定之后崩掉。</p>
+      <p><span class="tag obs">观察</span> 在 <code>aime24_10</code> 的一个状态里，有 2 条续写的工具输出已含正确答案（如 <code>Sum m + n: 371</code>），但下一轮输出了这个字符串，没有给出答案。</p>
+    </div>
+    <div>
+      <h3>还不能说的</h3>
+      <p><span class="tag unv">未验证</span> 这个字符串的来源未知：公开的 SimpleTIR 代码和已查的论文里都没有找到。</p>
+      <p><span class="tag unv">未验证</span> 探针只看第一个 token，第 4 格只来自 9 道题，P(<code>Reach</code>) 的保真度也没有验证。</p>
+      <p><span class="tag unv">未验证</span> 没有计算训练梯度，<strong>这些结果不能支持也不能否定梯度爆炸。</strong></p>
+    </div>
+  </div>
+</section>
+
+<section id="a">
+  <p class="eyebrow">实验 A · 观察性 · 30 个工具后状态，15 题</p>
+  <h2>高 H10 的状态质量更低，但没有通过校正</h2>
+  <div class="split">
+    <figure>
+      <figcaption><strong>每个点是一个工具后状态（6 条续写）。</strong>相关按题内去均值计算，图上画的是原始值</figcaption>
+      <div class="chart" id="c-scatter" role="img" aria-label="散点图：30 个状态的 H10 与成功率"></div>
+      <p class="src">来源：<a href="results/simpletir7b/A_states_labelled.csv">A_states_labelled.csv</a>，<a href="results/simpletir7b/A_correlations.csv">A_correlations.csv</a></p>
+    </figure>
+    <div>
+      <div class="tw"><table><thead><tr><th>预测量 → 结局</th><th class="n">ρ</th><th class="n">置换 p</th><th>95% CI</th><th class="n">BH</th></tr></thead><tbody><tr class="hl"><td>H10 → 成功率</td><td class="n">−.446</td><td class="n">.045</td><td>−.702, −.067</td><td class="n">.262</td></tr><tr><td>H10 → 有效率</td><td class="n">−.394</td><td class="n">.087</td><td>−.683, .017</td><td class="n">.262</td></tr><tr><td>H10 → void</td><td class="n">+.235</td><td class="n">.255</td><td>−.143, .552</td><td class="n">.346</td></tr><tr><td>H_first → 成功率（非主要）</td><td class="n">+.166</td><td class="n">.562</td><td>−.399, .626</td><td class="n">not computed</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>ρ</td><td>组内 Spearman 相关</td><td>按题目去均值后计算</td><td>−1 到 1</td><td>同一题内部的关联，非因果</td><td><code>A_correlations.csv</code></td></tr><tr><td>置换 p</td><td>题目内置换 10,000 次</td><td>双侧</td><td>0–1</td><td>单项显著性</td><td>同上</td></tr><tr><td>95% CI</td><td>题目聚类 bootstrap</td><td>百分位法</td><td>−1 到 1</td><td>不确定性</td><td>同上</td></tr><tr><td>BH</td><td>Benjamini–Hochberg 校正后的 p</td><td>预注册主要族共 6 项，这里列出其中 3 项</td><td>0–1</td><td>校正后显著性</td><td>同上</td></tr></tbody></table></div></details>
+      <p class="note"><span class="tag obs">观察</span> 所有预注册主要相关都未通过 BH。不依赖路径的 H_first 没有这个关系。与 placebo 的交互项 −.257（CI −.432 到 .625）包含 0，没有证据表明这一关系是工具特有的。</p>
+      <p class="note">同样是高熵，两个状态差别很大：<code>r1:t3</code> 成功率 .83，<code>r3:t3</code> 成功率 0。后者的 6 条续写里有 5 条输出了固定字符串，所以它的低质量至少部分来自最后一轮的固定输出（对这一个状态的观察）。</p>
+    </div>
+  </div>
+  <h3 style="margin-top:26px">按 H10 三分位（工具后状态，每组 10 个，描述性）</h3><div class="tw"><table><thead><tr><th>H10 三分位</th><th class="n">H10</th><th class="n">H_first</th><th class="n">成功率</th><th class="n">有效率</th><th class="n">void</th><th class="n">其中 giveup</th><th class="n">degenerate</th><th class="n">lexical</th><th class="n">productive</th></tr></thead><tbody><tr><td>低</td><td class="n">.227</td><td class="n">.224</td><td class="n">.667</td><td class="n">.683</td><td class="n">.183</td><td class="n">.133</td><td class="n">4</td><td class="n">5</td><td class="n">1</td></tr><tr><td>中</td><td class="n">.566</td><td class="n">.305</td><td class="n">.633</td><td class="n">.683</td><td class="n">.133</td><td class="n">.133</td><td class="n">5</td><td class="n">1</td><td class="n">4</td></tr><tr><td>高</td><td class="n">1.392</td><td class="n">1.017</td><td class="n">.400</td><td class="n">.417</td><td class="n">.317</td><td class="n">.300</td><td class="n">7</td><td class="n">0</td><td class="n">3</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>H10 三分位</td><td>工具后状态按 H10 分三组</td><td>全样本三分位</td><td>类别</td><td>描述性分组</td><td><code>A_by_tercile.csv</code></td></tr><tr><td>H10 … void</td><td>组内均值</td><td>状态内再组内平均；CI not computed</td><td>nats 或 0–1</td><td>熵和续写质量</td><td>同上</td></tr><tr><td>其中 giveup</td><td>以 <code>Reach max function call limit.</code> 结束的比例</td><td>事后特征</td><td>0–1</td><td>void 的主要来源</td><td>同上</td></tr><tr><td>degenerate / lexical / productive</td><td>预注册分类的状态数</td><td>按有效率、成功率、多样性的规则分类；<b>启发式，非直接观测</b></td><td>状态数</td><td>把高熵拆开</td><td><code>A_taxonomy.csv</code></td></tr></tbody></table></div></details>
+</section>
+
+<section id="c">
+  <p class="eyebrow">实验 C · 推理时分支 · 10 题 · 只作复现和控制</p>
+  <h2>没有策略显著胜过 <code>random</code>，按熵选位没有显示优势</h2>
+  <div class="split">
+    <figure>
+      <figcaption><strong>等预算下的分支正确率。</strong>共用两条根轨迹，n=10 题</figcaption>
+      <div class="chart" id="c-arms" role="img" aria-label="条形图：五种分支策略的分支正确率"></div>
+      <p class="src">来源：<a href="results/simpletir7b/C_arm_summary.csv">C_arm_summary.csv</a>，<a href="results/simpletir7b/C_vs_random.csv">C_vs_random.csv</a></p>
+    </figure>
+    <div>
+      <p class="note"><span class="tag obs">观察</span> 5 个策略的 <code>pass@budget</code>（含根轨迹）都是 .9。两个根都错的题只有 2 道，救援率都是 .5。</p>
+      <p class="note"><span class="tag obs">观察</span> <code>tool_boundary</code> 对 <code>random</code> 赢 5 输 1，p=.219，未达显著。各策略实际消耗的工具调用也不相等。</p>
+      <p class="note"><span class="tag unv">未验证</span> <code>tool_boundary</code> 点估计最高的原因未知，它的分支位置和其他策略不同。不能据此说熵引导没有用。</p>
+    </div>
+  </div>
+  <div class="tw"><table><thead><tr><th>策略</th><th class="n">分支至少一条正确</th><th class="n">分支正确率</th><th class="n">分支 void</th><th class="n">分支数</th><th class="n">token</th><th class="n">工具调用</th><th class="n">首 token 不同</th><th class="n">对 <code>random</code>（赢/输，p）</th></tr></thead><tbody><tr><td><code>tool_boundary</code></td><td class="n">.9</td><td class="n">.572</td><td class="n">.122</td><td class="n">4.4</td><td class="n">2999.2</td><td class="n">3.0</td><td class="n">.289</td><td class="n">5/1，.219</td></tr><tr><td><code>random</code></td><td class="n">.5</td><td class="n">.300</td><td class="n">.342</td><td class="n">2.8</td><td class="n">2981.1</td><td class="n">4.8</td><td class="n">.108</td><td class="n">对照</td></tr><tr><td><code>low_entropy</code></td><td class="n">.6</td><td class="n">.283</td><td class="n">.183</td><td class="n">2.5</td><td class="n">2990.2</td><td class="n">5.0</td><td class="n">.000</td><td class="n">3/2，1.000</td></tr><tr><td><code>posttool_high</code></td><td class="n">.7</td><td class="n">.262</td><td class="n">.303</td><td class="n">4.5</td><td class="n">2964.4</td><td class="n">4.4</td><td class="n">.867</td><td class="n">2/0，.500</td></tr><tr><td><code>high_entropy</code></td><td class="n">.6</td><td class="n">.260</td><td class="n">.270</td><td class="n">4.4</td><td class="n">2957.0</td><td class="n">4.1</td><td class="n">.936</td><td class="n">4/3，1.000</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>策略</td><td>重采样位置的规则</td><td>共用同样的两个根轨迹</td><td>类别</td><td>分支准则</td><td><code>C_arm_summary.csv</code></td></tr><tr><td>分支至少一条正确</td><td>不含根轨迹，至少一条分支正确的题目比例</td><td>题目级均值，n=10</td><td>0–1</td><td>分支的产出</td><td>同上</td></tr><tr><td>分支正确率 / 分支 void</td><td>分支的对应比例</td><td>先题内后题间平均；CI not computed</td><td>0–1</td><td>分支质量</td><td>同上</td></tr><tr><td>分支数 / token / 工具调用</td><td>每题消耗</td><td>均值</td><td>条 / token / 次</td><td>预算使用；工具调用并不相等</td><td>同上</td></tr><tr><td>首 token 不同</td><td>重采样第一个 token 与原路径不同的比例</td><td>比例</td><td>0–1</td><td>是否真的产生新路径</td><td>同上</td></tr><tr><td>对 <code>random</code></td><td>每题比较分支是否至少一条正确</td><td>精确符号检验</td><td>赢/输，p</td><td>是否胜过随机</td><td><code>C_vs_random.csv</code></td></tr></tbody></table></div></details>
+</section>
+
+<section id="limits">
+  <p class="eyebrow">局限</p>
+  <h2>最需要留意的是 4-bit 对 H_first 的影响</h2>
+  <div class="tw"><table><thead><tr><th>对比</th><th class="n">rollouts</th><th class="n">token</th><th class="n">Spearman</th><th class="n">平均 abs(ΔH)</th><th class="n">工具后首 token n</th><th class="n">首 token Spearman</th><th class="n">首 token 平均 abs(ΔH)</th></tr></thead><tbody><tr><td>4-bit 对 8-bit（早期，主要是第一轮）</td><td class="n">12</td><td class="n">4674</td><td class="n">.910</td><td class="n">.045</td><td class="n">1</td><td class="n">not computed</td><td class="n">.767</td></tr><tr class="hl"><td>4-bit 对 8-bit（工具后）</td><td class="n">12</td><td class="n">7418</td><td class="n">.965</td><td class="n">.073</td><td class="n">18</td><td class="n">.643</td><td class="n">.221</td></tr><tr><td>4-bit 对 4-bit（路径噪声对照）</td><td class="n">12</td><td class="n">7418</td><td class="n">.975</td><td class="n">.008</td><td class="n">18</td><td class="n">.998</td><td class="n">.009</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>对比</td><td>记录的 4-bit 熵和参考权重重放的熵</td><td>单次前向重放真实 rollout</td><td>类别</td><td>量化敏感性</td><td><code>fidelity_*.json</code></td></tr><tr><td>rollouts / token</td><td>样本量</td><td>计数</td><td>整数</td><td>样本量</td><td>同上</td></tr><tr><td>Spearman</td><td>逐位置等级相关</td><td>工具后对比只含第 2 轮起的 token</td><td>−1 到 1</td><td>相对顺序的保持；受大量接近 0 的熵值影响</td><td>同上</td></tr><tr><td>平均 abs(ΔH)</td><td>绝对差的均值</td><td>逐位置</td><td>nats</td><td>数值偏差</td><td>同上</td></tr><tr><td>工具后首 token 系列</td><td>只看工具结果后第一个 token</td><td>同上；n 小，CI not computed</td><td>同上</td><td><code>H_first</code> 的可靠性</td><td>同上</td></tr></tbody></table></div></details>
+  <p class="note"><span class="tag obs">观察</span> 工具后首 token 上，4-bit 对 8-bit 的 Spearman 只有 .643，同一 4-bit 模型回放的对照是 .998，所以差异主要来自量化。<code>H_first</code> 的结果只能视为 4-bit 模型的性质。H10 的保真度 not computed，也没有和 fp16 比较。</p>
+  <ul class="limits">
+    <li><strong>规模小。</strong>B 15 个前缀，A 30 个状态，C 10 题。没有检出不等于没有效应：<code>irrelevant</code> 和 <code>empty</code> 的成功率点估计分别下降 .178 和 .167。</li>
+    <li><strong>多重比较。</strong>Holm 只在同一结局内做，解离的 42 组比较未校正。</li>
+    <li><strong>长度混杂。</strong><code>verbose</code> 的观察长度是 133.7 token，<code>normal</code> 是 30.7。</li>
+    <li><strong>笔记本预算。</strong>单轮和总长度上限短于官方，B 的 budget 率 .111–.244，可能压低成功率。</li>
+    <li><strong>题目选择。</strong>按校准结果多样性选题，可能有回归均值。B 的 3 个前缀在 <code>normal</code> 下成功率已是 0。</li>
+    <li><strong>未训练。</strong>所有结论只针对推理时的已训练权重，不涉及 RL 更新。ARPO 模型复现未做。</li>
+  </ul>
+</section>
+
+<section id="novelty">
+  <p class="eyebrow">新颖性</p>
+  <h2>B 的主张要收窄，C 不作贡献</h2>
+  <div class="tw"><table><thead><tr><th>实验</th><th>风险</th><th>最接近的工作</th><th>调整</th></tr></thead><tbody><tr><td>A</td><td>中</td><td>APPO（熵与分支结果关系弱）；Tool-Light（工具后熵波动，只读摘要）</td><td>不主打“熵不可靠”，只作为 B 的观察性背景</td></tr><tr><td>B</td><td>中</td><td><a href="https://arxiv.org/abs/2608.06270">2608.06270</a> 已在视觉工具上做固定前缀替换观察（全文无 entropy，非代码 TIR）；ProCredit App. A（观察性）</td><td>主张收窄为：代码 TIR 上同时测量工具后熵和续写质量</td></tr><tr><td>C</td><td>高</td><td>APPO 的重采样比较</td><td>只作复现和控制，不作主要贡献</td></tr><tr><td>D + 探针</td><td>低到中</td><td>未发现把 void 与协议后缀关联的工作（两次检索）</td><td>先核实训练代码和其他 checkpoint，再判断是否值得写</td></tr></tbody></table></div><details class="defs"><summary>Column Definitions（列定义）</summary><div class="tw"><table><thead><tr><th>Column</th><th>Definition</th><th>Computation</th><th>Unit / Range</th><th>Meaning</th><th>Source</th></tr></thead><tbody><tr><td>实验</td><td>四组实验和探针</td><td>人工分组</td><td>类别</td><td>范围</td><td>报告 §7</td></tr><tr><td>风险</td><td>已被做过的风险</td><td><b>人工判断，非测量</b></td><td>低/中/高</td><td>决定投入</td><td><code>notes/smoke_novelty.md</code></td></tr><tr><td>最接近的工作</td><td>已读到的相近论文</td><td>人工核对原文，读取程度见笔记</td><td>文本</td><td>重合范围</td><td>同上</td></tr><tr><td>调整</td><td>研究问题的修改</td><td>人工判断</td><td>文本</td><td>后续方向</td><td>同上</td></tr></tbody></table></div></details>
+  <p class="note">结论只针对已检索范围，不是全文献排查。风险是人工判断。</p>
+</section>
+
+<section id="discuss">
+  <p class="eyebrow">讨论</p>
+  <h2>想请教的问题</h2>
+  <div class="cols">
+    <div>
+      <h3>最值得讨论</h3>
+      <ol>
+        <li><strong>B 的解离。</strong>形式能提熵而不伤质量，内容能伤质量而熵变化未检出。这对把工具后高熵当探索信号的做法提出了一个具体问题。</li>
+        <li><strong>void 的固定字符串和单 token 触发。</strong>这是这一个模型的特殊现象，还是值得查的普遍问题？它可能影响怎么理解 void turn 的统计和过滤。</li>
+      </ol>
+    </div>
+    <div>
+      <h3>需要判断的决定</h3>
+      <ol>
+        <li>项目是否从综述扩展成研究论文？</li>
+        <li>下一步是否需要 GPU：fp16 全精度，50 个以上前缀，加上 ARPO 模型？</li>
+        <li>“形式/内容分解”是否足以构成研究问题，还是要进一步到训练，例如只改反馈的形式，看熵奖励是否被格式吸引？</li>
+      </ol>
+    </div>
+    <div>
+      <h3>目前不能下的结论</h3>
+      <ul>
+        <li>熵引导没有用（C 只有 10 题）。</li>
+        <li>和 ProCredit 矛盾（模型、任务和设计都不同）。</li>
+        <li>void 与梯度爆炸有或没有关系。</li>
+        <li><code>Reach</code> 字符串的来源已知。</li>
+      </ul>
+    </div>
+  </div>
+  <p class="next"><strong>下一步可以做的：</strong>查 SimpleTIR 的训练环境里是否出现这个字符串；在其他 checkpoint 上跑同样探针；用 fp16 重测 B 的 H_first 和 H10；增加样本，判定 <code>irrelevant</code> 和 <code>empty</code> 的成功率效应；C 控制工具调用预算并增加题目。</p>
+</section>
+</main>
+
+<footer>
+  <div class="foot">
+    <div>
+      <h4>完整材料</h4>
+      <p><a href="report_zh.html">中文报告</a> · <a href="report_en.html">English report</a> · <a href="prereg.html">预注册（English）</a></p>
+      <p class="muted">页面数字来自 <code>results/simpletir7b/</code> 下的结果文件，以报告为准。按 ← → 可在章节间跳转。</p>
+    </div>
+    <div>
+      <h4>文献</h4>
+      <p class="refs">
+        <a href="https://arxiv.org/abs/2504.11536">ReTool</a> ·
+        <a href="https://arxiv.org/abs/2507.19849">ARPO</a> ·
+        <a href="https://arxiv.org/abs/2509.02479">SimpleTIR</a> ·
+        <a href="https://arxiv.org/abs/2510.14545">AEPO</a> ·
+        <a href="https://arxiv.org/abs/2606.12384">APPO</a> ·
+        <a href="https://arxiv.org/abs/2606.03762">TAO-RL</a> ·
+        <a href="https://arxiv.org/abs/2609.27532">ProCredit</a> ·
+        <a href="https://arxiv.org/abs/2608.06270">Illusion of Visual Tool-Use</a> ·
+        <a href="https://arxiv.org/abs/2509.23285">Tool-Light</a>（只读摘要）
+      </p>
+    </div>
+  </div>
+</footer>
+
+<div id="tip" role="status" hidden></div>
+<script>const DATA = {"profile":{"post":[{"p":0,"h":0.4698,"n":2641},{"p":1,"h":0.8047,"n":2640},{"p":2,"h":1.0169,"n":2640},{"p":3,"h":0.9089,"n":2640},{"p":4,"h":0.7535,"n":2640},{"p":5,"h":0.7633,"n":2640},{"p":6,"h":0.813,"n":2639},{"p":7,"h":0.883,"n":2438},{"p":8,"h":0.9144,"n":2438},{"p":9,"h":0.9129,"n":2438},{"p":10,"h":0.881,"n":2438},{"p":11,"h":0.8724,"n":2438},{"p":12,"h":0.8709,"n":2438},{"p":13,"h":0.8621,"n":2438},{"p":14,"h":0.8578,"n":2438},{"p":15,"h":0.8703,"n":2438},{"p":16,"h":0.8925,"n":2436},{"p":17,"h":0.8836,"n":2436},{"p":18,"h":0.8652,"n":2434},{"p":19,"h":0.8747,"n":2434},{"p":20,"h":0.8808,"n":2431},{"p":21,"h":0.907,"n":2431},{"p":22,"h":0.8922,"n":2429},{"p":23,"h":0.9027,"n":2429},{"p":24,"h":0.888,"n":2429},{"p":25,"h":0.9285,"n":2428},{"p":26,"h":0.9163,"n":2428},{"p":27,"h":0.9058,"n":2427},{"p":28,"h":0.9348,"n":2426},{"p":29,"h":0.943,"n":2424},{"p":30,"h":0.919,"n":2424},{"p":31,"h":0.8838,"n":2424},{"p":32,"h":0.9162,"n":2424},{"p":33,"h":0.9255,"n":2423},{"p":34,"h":0.9242,"n":2417},{"p":35,"h":0.9298,"n":2416},{"p":36,"h":0.9093,"n":2413},{"p":37,"h":0.9163,"n":2412},{"p":38,"h":0.8808,"n":2411},{"p":39,"h":0.8834,"n":2411},{"p":40,"h":0.8755,"n":2405},{"p":41,"h":0.8571,"n":2404},{"p":42,"h":0.8651,"n":2401},{"p":43,"h":0.8823,"n":2401},{"p":44,"h":0.879,"n":2401},{"p":45,"h":0.8518,"n":2399},{"p":46,"h":0.8509,"n":2397},{"p":47,"h":0.8433,"n":2390},{"p":48,"h":0.849,"n":2386},{"p":49,"h":0.8311,"n":2382},{"p":50,"h":0.8261,"n":2379},{"p":51,"h":0.8644,"n":2376},{"p":52,"h":0.8239,"n":2372},{"p":53,"h":0.8214,"n":2366},{"p":54,"h":0.845,"n":2365},{"p":55,"h":0.8423,"n":2362},{"p":56,"h":0.808,"n":2359},{"p":57,"h":0.7947,"n":2355},{"p":58,"h":0.8136,"n":2353},{"p":59,"h":0.7831,"n":2349},{"p":60,"h":0.7901,"n":2345},{"p":61,"h":0.8056,"n":2342},{"p":62,"h":0.7714,"n":2339},{"p":63,"h":0.7765,"n":2338},{"p":64,"h":0.7911,"n":2337},{"p":65,"h":0.7911,"n":2333},{"p":66,"h":0.7523,"n":2329},{"p":67,"h":0.7442,"n":2328},{"p":68,"h":0.7573,"n":2324},{"p":69,"h":0.7116,"n":2319},{"p":70,"h":0.7405,"n":2315},{"p":71,"h":0.7375,"n":2315},{"p":72,"h":0.7043,"n":2311},{"p":73,"h":0.7193,"n":2306},{"p":74,"h":0.7096,"n":2303},{"p":75,"h":0.7084,"n":2301},{"p":76,"h":0.6994,"n":2298},{"p":77,"h":0.7182,"n":2298},{"p":78,"h":0.6969,"n":2296},{"p":79,"h":0.697,"n":2295},{"p":80,"h":0.684,"n":2290},{"p":81,"h":0.6983,"n":2287},{"p":82,"h":0.7085,"n":2284},{"p":83,"h":0.6907,"n":2280},{"p":84,"h":0.6828,"n":2275},{"p":85,"h":0.6915,"n":2273},{"p":86,"h":0.6932,"n":2268},{"p":87,"h":0.6714,"n":2266},{"p":88,"h":0.6663,"n":2264},{"p":89,"h":0.6735,"n":2262},{"p":90,"h":0.655,"n":2262},{"p":91,"h":0.6431,"n":2262},{"p":92,"h":0.6068,"n":2261},{"p":93,"h":0.6305,"n":2261},{"p":94,"h":0.6085,"n":2258},{"p":95,"h":0.6215,"n":2258},{"p":96,"h":0.6112,"n":2255},{"p":97,"h":0.6378,"n":2253},{"p":98,"h":0.6074,"n":2252},{"p":99,"h":0.596,"n":2252}],"first":[{"p":0,"h":0.0176,"n":144},{"p":1,"h":0.3621,"n":144},{"p":2,"h":0.3019,"n":144},{"p":3,"h":0.101,"n":144},{"p":4,"h":0.0879,"n":144},{"p":5,"h":0.0932,"n":144},{"p":6,"h":0.201,"n":144},{"p":7,"h":0.079,"n":144},{"p":8,"h":0.3364,"n":144},{"p":9,"h":0.1791,"n":144},{"p":10,"h":0.2308,"n":144},{"p":11,"h":0.1743,"n":144},{"p":12,"h":0.206,"n":144},{"p":13,"h":0.196,"n":144},{"p":14,"h":0.1664,"n":144},{"p":15,"h":0.2258,"n":144},{"p":16,"h":0.1413,"n":144},{"p":17,"h":0.1764,"n":144},{"p":18,"h":0.2312,"n":144},{"p":19,"h":0.1733,"n":144},{"p":20,"h":0.2047,"n":144},{"p":21,"h":0.1982,"n":144},{"p":22,"h":0.2091,"n":144},{"p":23,"h":0.229,"n":144},{"p":24,"h":0.1986,"n":144},{"p":25,"h":0.1521,"n":144},{"p":26,"h":0.1649,"n":144},{"p":27,"h":0.193,"n":144},{"p":28,"h":0.2124,"n":144},{"p":29,"h":0.1566,"n":144},{"p":30,"h":0.1565,"n":144},{"p":31,"h":0.1775,"n":144},{"p":32,"h":0.1672,"n":144},{"p":33,"h":0.1705,"n":144},{"p":34,"h":0.1469,"n":144},{"p":35,"h":0.2098,"n":144},{"p":36,"h":0.1786,"n":144},{"p":37,"h":0.1657,"n":144},{"p":38,"h":0.1547,"n":144},{"p":39,"h":0.1747,"n":144},{"p":40,"h":0.1743,"n":144},{"p":41,"h":0.1756,"n":144},{"p":42,"h":0.1367,"n":144},{"p":43,"h":0.1396,"n":144},{"p":44,"h":0.0935,"n":144},{"p":45,"h":0.1254,"n":144},{"p":46,"h":0.1572,"n":144},{"p":47,"h":0.1755,"n":144},{"p":48,"h":0.1731,"n":144},{"p":49,"h":0.1827,"n":144},{"p":50,"h":0.1941,"n":144},{"p":51,"h":0.1942,"n":144},{"p":52,"h":0.1846,"n":144},{"p":53,"h":0.1856,"n":144},{"p":54,"h":0.1528,"n":144},{"p":55,"h":0.1193,"n":144},{"p":56,"h":0.1831,"n":144},{"p":57,"h":0.1833,"n":144},{"p":58,"h":0.1833,"n":144},{"p":59,"h":0.1857,"n":144},{"p":60,"h":0.1331,"n":144},{"p":61,"h":0.1888,"n":144},{"p":62,"h":0.1968,"n":144},{"p":63,"h":0.1976,"n":144},{"p":64,"h":0.1648,"n":144},{"p":65,"h":0.1628,"n":144},{"p":66,"h":0.159,"n":144},{"p":67,"h":0.1814,"n":144},{"p":68,"h":0.1989,"n":144},{"p":69,"h":0.1636,"n":144},{"p":70,"h":0.1713,"n":144},{"p":71,"h":0.144,"n":144},{"p":72,"h":0.1659,"n":144},{"p":73,"h":0.1467,"n":144},{"p":74,"h":0.1796,"n":144},{"p":75,"h":0.1925,"n":144},{"p":76,"h":0.1741,"n":144},{"p":77,"h":0.1406,"n":144},{"p":78,"h":0.1569,"n":144},{"p":79,"h":0.197,"n":144},{"p":80,"h":0.1602,"n":144},{"p":81,"h":0.1732,"n":144},{"p":82,"h":0.1484,"n":144},{"p":83,"h":0.1726,"n":144},{"p":84,"h":0.1683,"n":144},{"p":85,"h":0.2076,"n":144},{"p":86,"h":0.1911,"n":144},{"p":87,"h":0.2386,"n":144},{"p":88,"h":0.1695,"n":144},{"p":89,"h":0.1675,"n":144},{"p":90,"h":0.1987,"n":144},{"p":91,"h":0.1452,"n":144},{"p":92,"h":0.2086,"n":144},{"p":93,"h":0.1612,"n":144},{"p":94,"h":0.1047,"n":144},{"p":95,"h":0.1319,"n":144},{"p":96,"h":0.1411,"n":144},{"p":97,"h":0.1577,"n":144},{"p":98,"h":0.1646,"n":144},{"p":99,"h":0.1424,"n":144}]},"forest":[{"group":"只改形式","conds":[{"cond":"verbose","desc":"同样的输出，包在沙箱日志里","H10":{"mean":0.2497,"lo":0.0931,"hi":0.4516,"detected":true,"s":"+.250","slo":".093","shi":".452","sholm":".027","scond":".829","snorm":".579"},"success":{"mean":0.0333,"lo":-0.0667,"hi":0.1333,"detected":false,"s":"+.033","slo":"−.067","shi":".133","sholm":".747","scond":".656","snorm":".622"}},{"cond":"text_only","desc":"同样的输出，不标记为工具结果","H10":{"mean":0.1622,"lo":0.1016,"hi":0.2358,"detected":true,"s":"+.162","slo":".102","shi":".236","sholm":".002","scond":".741","snorm":".579"},"success":{"mean":-0.0333,"lo":-0.1,"hi":0.0222,"detected":false,"s":"−.033","slo":"−.100","shi":".022","sholm":".747","scond":".589","snorm":".622"}}]},{"group":"只改内容","conds":[{"cond":"perturbed","desc":"数字改错，格式和长度不变","H10":{"mean":0.099,"lo":0.0138,"hi":0.1832,"detected":false,"s":"+.099","slo":".014","shi":".183","sholm":".096","scond":".678","snorm":".579"},"success":{"mean":-0.3333,"lo":-0.5,"hi":-0.1778,"detected":true,"s":"−.333","slo":"−.500","shi":"−.178","sholm":".030","scond":".289","snorm":".622"}},{"cond":"irrelevant","desc":"换成另一道题的输出","H10":{"mean":0.1736,"lo":0.0629,"hi":0.2933,"detected":true,"s":"+.174","slo":".063","shi":".293","sholm":".031","scond":".753","snorm":".579"},"success":{"mean":-0.1778,"lo":-0.3556,"hi":-0.0222,"detected":false,"s":"−.178","slo":"−.356","shi":"−.022","sholm":".312","scond":".444","snorm":".622"}}]},{"group":"失败或没有信息","conds":[{"cond":"error","desc":"ZeroDivisionError","H10":{"mean":-0.0005,"lo":-0.1145,"hi":0.1222,"detected":false,"s":"−.000","slo":"−.114","shi":".122","sholm":".934","scond":".579","snorm":".579"},"success":{"mean":-0.0889,"lo":-0.2111,"hi":0.0111,"detected":false,"s":"−.089","slo":"−.211","shi":".011","sholm":".747","scond":".533","snorm":".622"}},{"cond":"empty","desc":"空输出","H10":{"mean":-0.308,"lo":-0.4831,"hi":-0.1437,"detected":true,"s":"−.308","slo":"−.483","shi":"−.144","sholm":".013","scond":".271","snorm":".579"},"success":{"mean":-0.1667,"lo":-0.3444,"hi":-0.0111,"detected":false,"s":"−.167","slo":"−.344","shi":"−.011","sholm":".370","scond":".456","snorm":".622"}}]}],"probe":{"suffix":[{"mean":0.0009,"lo":0.0003,"hi":0.0015,"problems":19},{"mean":0.1687,"lo":0.0637,"hi":0.3036,"problems":15},{"mean":0.3545,"lo":0.2072,"hi":0.5305,"problems":15},{"mean":0.4042,"lo":0.2784,"hi":0.5117,"problems":9}],"no_suffix":[{"mean":0.0,"lo":0.0,"hi":0.0001,"problems":19},{"mean":0.0001,"lo":0.0,"hi":0.0004,"problems":15},{"mean":0.0002,"lo":0.0001,"hi":0.0004,"problems":15},{"mean":0.0007,"lo":0.0002,"hi":0.0012,"problems":9}],"suffix_blank_result":[{"mean":0.0001,"lo":0.0,"hi":0.0001,"problems":19},{"mean":0.0003,"lo":0.0001,"hi":0.0007,"problems":15},{"mean":0.0008,"lo":0.0002,"hi":0.0012,"problems":15},{"mean":0.0037,"lo":0.0007,"hi":0.0073,"problems":9}]},"states":[{"sid":"aime24_01:r0:t2","H10":0.39493,"success":0.16666666666666666,"valid":0.16666666666666666,"label":""},{"sid":"aime24_01:r3:t2","H10":0.13681833333333335,"success":0.5,"valid":0.5,"label":""},{"sid":"aime24_03:r1:t4","H10":1.0331509523809526,"success":0.6666666666666666,"valid":0.6666666666666666,"label":""},{"sid":"aime24_03:r2:t1","H10":0.5810366666666668,"success":0.5,"valid":0.5,"label":""},{"sid":"aime24_05:r0:t4","H10":1.8371680952380955,"success":0.0,"valid":0.0,"label":""},{"sid":"aime24_05:r2:t3","H10":1.6479116666666667,"success":0.16666666666666666,"valid":0.16666666666666666,"label":""},{"sid":"aime24_10:r1:t3","H10":1.7060733333333333,"success":0.8333333333333334,"valid":0.8333333333333334,"label":"r1:t3 高熵且有效"},{"sid":"aime24_10:r3:t3","H10":2.0361366666666667,"success":0.0,"valid":0.0,"label":"r3:t3 高熵且退化"},{"sid":"aime24_16:r0:t1","H10":0.5008366666666666,"success":0.6666666666666666,"valid":0.6666666666666666,"label":""},{"sid":"aime24_16:r1:t3","H10":0.47443166666666664,"success":0.0,"valid":0.0,"label":""},{"sid":"aime24_28:r2:t2","H10":0.6882450000000001,"success":0.5,"valid":0.8333333333333334,"label":""},{"sid":"aime24_28:r3:t4","H10":1.5407133333333334,"success":0.0,"valid":0.0,"label":""},{"sid":"math_algebra_1082:r0:t1","H10":0.565465,"success":1.0,"valid":1.0,"label":""},{"sid":"math_algebra_1082:r3:t1","H10":0.8075733333333334,"success":0.16666666666666666,"valid":0.16666666666666666,"label":""},{"sid":"math_algebra_776:r1:t1","H10":0.6373066666666666,"success":0.5,"valid":0.5,"label":""},{"sid":"math_algebra_776:r3:t2","H10":1.2944083333333334,"success":0.3333333333333333,"valid":0.5,"label":""},{"sid":"math_counting_and_probability_1003:r0:t1","H10":0.4992183333333333,"success":0.0,"valid":0.16666666666666666,"label":""},{"sid":"math_counting_and_probability_1003:r1:t3","H10":0.22599833333333338,"success":0.0,"valid":0.16666666666666666,"label":""},{"sid":"math_counting_and_probability_25149:r0:t1","H10":0.09476166666666667,"success":1.0,"valid":1.0,"label":""},{"sid":"math_counting_and_probability_25149:r2:t1","H10":1.2490649999999999,"success":1.0,"valid":1.0,"label":""},{"sid":"math_counting_and_probability_765:r0:t1","H10":0.49303499999999995,"success":1.0,"valid":1.0,"label":""},{"sid":"math_counting_and_probability_765:r3:t2","H10":0.22003833333333334,"success":1.0,"valid":1.0,"label":""},{"sid":"math_intermediate_algebra_121:r1:t1","H10":0.1984516666666667,"success":1.0,"valid":1.0,"label":""},{"sid":"math_intermediate_algebra_121:r3:t2","H10":0.7674366666666667,"success":0.8333333333333334,"valid":0.8333333333333334,"label":""},{"sid":"math_number_theory_483:r1:t2","H10":0.01260833333333333,"success":1.0,"valid":1.0,"label":""},{"sid":"math_number_theory_483:r2:t1","H10":0.28018000000000004,"success":1.0,"valid":1.0,"label":""},{"sid":"math_prealgebra_2086:r0:t1","H10":0.23138,"success":1.0,"valid":1.0,"label":""},{"sid":"math_prealgebra_2086:r1:t1","H10":0.505,"success":1.0,"valid":1.0,"label":""},{"sid":"math_precalculus_675:r0:t2","H10":0.5644233333333334,"success":1.0,"valid":1.0,"label":""},{"sid":"math_precalculus_675:r3:t1","H10":0.6246516666666666,"success":0.16666666666666666,"valid":0.16666666666666666,"label":""}],"arms":[{"arm":"tool_boundary","branch_acc":0.572,"s":".572","any":".9","vs":"5/1，.219"},{"arm":"random","branch_acc":0.3,"s":".300","any":".5","vs":"对照"},{"arm":"low_entropy","branch_acc":0.283,"s":".283","any":".6","vs":"3/2，1.000"},{"arm":"posttool_high","branch_acc":0.262,"s":".262","any":".7","vs":"2/0，.500"},{"arm":"high_entropy","branch_acc":0.26,"s":".260","any":".6","vs":"4/3，1.000"}]};</script>
+<script src="charts.js"></script>
+</body>
+</html>
